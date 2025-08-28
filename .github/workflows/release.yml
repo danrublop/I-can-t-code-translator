@@ -32,7 +32,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: macos-app
-          path: build/*.dmg
+          path: dist/*.dmg
           retention-days: 1
 
   build-windows:
@@ -61,7 +61,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-app
-          path: build/*.exe
+          path: dist/*.exe
           retention-days: 1
 
   build-linux:
@@ -90,7 +90,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: linux-app
-          path: build/*.AppImage
+          path: dist/*.AppImage
           retention-days: 1
 
   create-release:
@@ -134,11 +134,11 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            build/*.dmg
-            build/*.exe
-            build/*.AppImage
-            build/checksums.md
-          body_path: build/checksums.md
+            dist/*.dmg
+            dist/*.exe
+            dist/*.AppImage
+            dist/checksums.md
+          body_path: dist/checksums.md
           draft: false
           prerelease: false
         env:

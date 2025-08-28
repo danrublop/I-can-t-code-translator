@@ -109,7 +109,7 @@ jobs:
       - name: Rename files for better URLs
         run: |
           # Rename files to be more user-friendly and consistent
-          cd dist
+          cd build
           for file in *; do
             if [[ "$file" == *"i cant code"* ]]; then
               newname=$(echo "$file" | sed 's/i cant code/i-cant-code/g')
@@ -120,7 +120,7 @@ jobs:
           
       - name: Generate checksums
         run: |
-          cd dist
+          cd build
           echo "## SHA256 Checksums" > checksums.md
           echo "" >> checksums.md
           for file in *; do

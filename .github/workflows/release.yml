@@ -1,0 +1,145 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'  # Triggers on version tags like v1.0.0, v1.1.0, etc.
+
+jobs:
+  build-macos:
+    name: Build macOS
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Build Electron app
+        run: npm run build:prod
+        
+      - name: Build macOS app
+        run: npm run build:mac
+        
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-app
+          path: dist/*.dmg
+          retention-days: 1
+
+  build-windows:
+    name: Build Windows
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Build Electron app
+        run: npm run build:prod
+        
+      - name: Build Windows app
+        run: npm run build:win
+        
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-app
+          path: dist/*.exe
+          retention-days: 1
+
+  build-linux:
+    name: Build Linux
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Build Electron app
+        run: npm run build:prod
+        
+      - name: Build Linux app
+        run: npm run build:linux
+        
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-app
+          path: dist/*.AppImage
+          retention-days: 1
+
+  create-release:
+    name: Create Release
+    needs: [build-macos, build-windows, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/
+          
+      - name: Rename files for better URLs
+        run: |
+          # Rename files to be more user-friendly and consistent
+          cd dist
+          for file in *; do
+            if [[ "$file" == *"i cant code"* ]]; then
+              newname=$(echo "$file" | sed 's/i cant code/i-cant-code/g')
+              mv "$file" "$newname"
+              echo "Renamed: $file -> $newname"
+            fi
+          done
+          
+      - name: Generate checksums
+        run: |
+          cd dist
+          echo "## SHA256 Checksums" > checksums.md
+          echo "" >> checksums.md
+          for file in *; do
+            if [ -f "$file" ]; then
+              sha256sum "$file" >> checksums.md
+            fi
+          done
+          cat checksums.md
+          
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            dist/*.dmg
+            dist/*.exe
+            dist/*.AppImage
+            dist/checksums.md
+          body_path: dist/checksums.md
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

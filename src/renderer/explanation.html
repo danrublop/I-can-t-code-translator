@@ -12,13 +12,16 @@
             background: #1a1a1a;
             color: #ffffff;
             overflow: hidden;
-            user-select: none;
         }
         
         #root {
             height: 100vh;
             display: flex;
             flex-direction: column;
+            user-select: text;
+            -webkit-user-select: text;
+            -moz-user-select: text;
+            -ms-user-select: text;
         }
         
         .title-bar {
@@ -75,6 +78,10 @@
             flex-direction: column;
             padding: 16px;
             overflow: hidden;
+            user-select: text;
+            -webkit-user-select: text;
+            -moz-user-select: text;
+            -ms-user-select: text;
         }
         
         .detail-level-selector {
@@ -85,23 +92,27 @@
         }
         
         .detail-btn {
-            padding: 6px 12px;
-            border: 1px solid #404040;
-            background: #2a2a2a;
+            padding: 8px 16px;
+            border: 2px solid #ffffff;
+            background: #000000;
             color: #ffffff;
-            border-radius: 6px;
+            border-radius: 20px;
             cursor: pointer;
             font-size: 12px;
+            font-weight: 500;
             transition: all 0.2s;
         }
         
         .detail-btn:hover {
-            background: #404040;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(255, 255, 255, 0.2);
         }
         
         .detail-btn.active {
-            background: #3b82f6;
-            border-color: #3b82f6;
+            background: #ffffff;
+            color: #000000;
+            border-color: #ffffff;
+            box-shadow: 0 2px 4px rgba(255, 255, 255, 0.3);
         }
         
         .main-content {
@@ -161,6 +172,10 @@
             color: #e6edf3;
             white-space: pre-wrap;
             word-break: break-word;
+            user-select: text;
+            -webkit-user-select: text;
+            -moz-user-select: text;
+            -ms-user-select: text;
         }
         
         .explanation-content {
@@ -171,6 +186,10 @@
             padding: 12px;
             overflow: auto;
             line-height: 1.6;
+            user-select: text;
+            -webkit-user-select: text;
+            -moz-user-select: text;
+            -ms-user-select: text;
         }
         
         .loading {
@@ -233,6 +252,10 @@
         .explanation-content h6 {
             margin: 16px 0 8px 0;
             color: #ffffff;
+            user-select: text;
+            -webkit-user-select: text;
+            -moz-user-select: text;
+            -ms-user-select: text;
         }
         
         .explanation-content h1 { font-size: 18px; }
@@ -242,6 +265,10 @@
         .explanation-content p {
             margin: 8px 0;
             color: #e5e7eb;
+            user-select: text;
+            -webkit-user-select: text;
+            -moz-user-select: text;
+            -ms-user-select: text;
         }
         
         .explanation-content code {
@@ -259,6 +286,10 @@
             border-radius: 6px;
             overflow-x: auto;
             margin: 12px 0;
+            user-select: text;
+            -webkit-user-select: text;
+            -moz-user-select: text;
+            -ms-user-select: text;
         }
         
         .explanation-content pre code {
@@ -369,6 +400,96 @@
                 opacity: 1;
             }
         }
+        
+        /* Ensure text selection works throughout the app */
+        .explanation-content *,
+        .code-viewer *,
+        .explanation-content pre,
+        .explanation-content span,
+        .explanation-content code {
+            user-select: text !important;
+            -webkit-user-select: text !important;
+            -moz-user-select: text !important;
+            -ms-user-select: text !important;
+        }
+        
+        /* Allow text selection in the main content area */
+        .main-content {
+            user-select: text;
+            -webkit-user-select: text;
+            -moz-user-select: text;
+            -ms-user-select: text;
+        }
+        
+        /* Override any potential React inline styles that might prevent text selection */
+        .explanation-content pre,
+        .explanation-content span,
+        .explanation-content div,
+        .explanation-content p,
+        .explanation-content h1,
+        .explanation-content h2,
+        .explanation-content h3,
+        .explanation-content h4,
+        .explanation-content h5,
+        .explanation-content h6,
+        .explanation-content ul,
+        .explanation-content ol,
+        .explanation-content li,
+        .explanation-content blockquote {
+            user-select: text !important;
+            -webkit-user-select: text !important;
+            -moz-user-select: text !important;
+            -ms-user-select: text !important;
+        }
+        
+        /* Ensure code blocks are selectable */
+        .explanation-content code,
+        .code-viewer code,
+        .code-viewer pre {
+            user-select: text !important;
+            -webkit-user-select: text !important;
+            -moz-user-select: text !important;
+            -ms-user-select: text !important;
+        }
+        
+        /* Ensure all dynamically inserted content is selectable */
+        .explanation-content [data-reactroot] *,
+        .explanation-content [data-reactroot] {
+            user-select: text !important;
+            -webkit-user-select: text !important;
+            -moz-user-select: text !important;
+            -ms-user-select: text !important;
+        }
+        
+        /* Final fallback to ensure text selection works everywhere */
+        * {
+            -webkit-touch-callout: default !important;
+            -webkit-user-select: auto !important;
+            -khtml-user-select: auto !important;
+            -moz-user-select: auto !important;
+            -ms-user-select: auto !important;
+            user-select: auto !important;
+        }
+        
+        /* Ensure text content is selectable by default */
+        p, span, div, h1, h2, h3, h4, h5, h6, li, td, th, code, pre {
+            user-select: text !important;
+            -webkit-user-select: text !important;
+            -moz-user-select: text !important;
+            -ms-user-select: text !important;
+        }
+        
+        /* But allow specific elements to override with text selection */
+        .explanation-content,
+        .code-viewer,
+        .main-content {
+            user-select: text !important;
+            -webkit-user-select: text !important;
+            -moz-user-select: text !important;
+            -ms-user-select: text !important;
+        }
+        
+
     </style>
 </head>
 <body>

@@ -92,3 +92,4 @@ echo    - Ctrl+Shift+T: Translate code
 echo    - Ctrl+Shift+H: Toggle toolbar
 echo.
 pause
+

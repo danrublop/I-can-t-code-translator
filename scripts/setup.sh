@@ -86,3 +86,4 @@ echo ""
 echo "🔑 Global shortcuts:"
 echo "   - Cmd+Shift+T (Mac) / Ctrl+Shift+T (Windows/Linux): Translate code"
 echo "   - Cmd+Shift+H (Mac) / Ctrl+Shift+H (Windows/Linux): Toggle toolbar"
+

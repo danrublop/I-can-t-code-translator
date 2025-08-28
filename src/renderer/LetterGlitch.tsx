@@ -1,7 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 
 const LetterGlitch = ({
-  glitchColors = ['#2b4539', '#61dca3', '#61b3dc'],
+  glitchColors = ['#ffffff', '#9ca3af', '#6b7280', '#d1d5db'],
   className = '',
   glitchSpeed = 50,
   centerVignette = false,
@@ -37,7 +37,7 @@ const LetterGlitch = ({
 
   const hexToRgb = (hex: string) => {
     const shorthandRegex = /^#?([a-f\d])([a-f\d])([a-f\d])$/i;
-    hex = hex.replace(shorthandRegex, (m, r, g, b) => {
+    hex = hex.replace(shorthandRegex, (m: string, r: string, g: string, b: string) => {
       return r + r + g + g + b + b;
     });
 
@@ -101,9 +101,9 @@ const LetterGlitch = ({
   };
 
   const drawLetters = () => {
-    if (!context.current || letters.current.length === 0) return;
+    if (!context.current || letters.current.length === 0 || !canvasRef.current) return;
     const ctx = context.current;
-    const { width, height } = canvasRef.current!.getBoundingClientRect();
+    const { width, height } = canvasRef.current.getBoundingClientRect();
     ctx.clearRect(0, 0, width, height);
     ctx.font = `${fontSize}px monospace`;
     ctx.textBaseline = 'top';
@@ -181,7 +181,7 @@ const LetterGlitch = ({
     resizeCanvas();
     animate();
 
-    let resizeTimeout: NodeJS.Timeout;
+    let resizeTimeout: NodeJS.Timeout | undefined;
 
     const handleResize = () => {
       clearTimeout(resizeTimeout);
@@ -205,37 +205,37 @@ const LetterGlitch = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [glitchSpeed, smooth]);
 
-  const containerStyle = {
-    position: 'relative' as const,
+  const containerStyle: React.CSSProperties = {
+    position: 'relative',
     width: '100%',
     height: '100%',
     backgroundColor: '#000000',
-    overflow: 'hidden' as const,
+    overflow: 'hidden',
   };
 
   const canvasStyle = {
-    display: 'block' as const,
+    display: 'block',
     width: '100%',
     height: '100%',
   };
 
-  const outerVignetteStyle = {
-    position: 'absolute' as const,
+  const outerVignetteStyle: React.CSSProperties = {
+    position: 'absolute',
     top: 0,
     left: 0,
     width: '100%',
     height: '100%',
-    pointerEvents: 'none' as const,
+    pointerEvents: 'none',
     background: 'radial-gradient(circle, rgba(0,0,0,0) 60%, rgba(0,0,0,1) 100%)',
   };
 
-  const centerVignetteStyle = {
-    position: 'absolute' as const,
+  const centerVignetteStyle: React.CSSProperties = {
+    position: 'absolute',
     top: 0,
     left: 0,
     width: '100%',
     height: '100%',
-    pointerEvents: 'none' as const,
+    pointerEvents: 'none',
     background: 'radial-gradient(circle, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0) 60%)',
   };
 

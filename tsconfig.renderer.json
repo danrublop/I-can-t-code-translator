@@ -18,7 +18,8 @@
     "declaration": false
   },
   "include": [
-    "src/renderer/**/*"
+    "src/renderer/**/*",
+    "src/renderer/renderer-types.d.ts"
   ],
   "exclude": [
     "node_modules",

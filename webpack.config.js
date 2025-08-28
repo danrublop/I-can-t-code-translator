@@ -29,6 +29,10 @@ module.exports = {
       {
         test: /\.css$/,
         use: ['style-loader', 'css-loader']
+      },
+      {
+        test: /\.(png|jpg|jpeg|gif|svg)$/i,
+        type: 'asset/resource'
       }
     ]
   },
@@ -42,7 +46,25 @@ module.exports = {
       template: './src/renderer/explanation.html',
       filename: 'explanation.html',
       chunks: ['explanation']
-    })
+    }),
   ],
-  devtool: 'source-map'
+  devtool: 'source-map',
+  // Enable hot reloading
+  devServer: {
+    hot: true,
+    liveReload: true,
+    watchFiles: ['src/renderer/**/*'],
+    static: {
+      directory: path.join(__dirname, 'dist'),
+    },
+    compress: true,
+    port: 3000,
+  },
+  // Enable watching for file changes
+  watch: true,
+  watchOptions: {
+    ignored: /node_modules/,
+    aggregateTimeout: 300,
+    poll: 1000,
+  }
 };

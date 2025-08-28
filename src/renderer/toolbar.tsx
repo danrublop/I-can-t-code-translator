@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import ReactDOM from 'react-dom/client';
+import './toolbar.css';
 
 interface ToolbarProps {}
 
@@ -11,6 +12,8 @@ interface ToolbarState {
   lineCount: number;
   charCount: number;
   hasContent: boolean;
+  isAuthenticated: boolean;
+  user: any;
 }
 
 const Toolbar: React.FC<ToolbarProps> = () => {
@@ -21,7 +24,9 @@ const Toolbar: React.FC<ToolbarProps> = () => {
     isOllamaConnected: false,
     lineCount: 0,
     charCount: 0,
-    hasContent: false
+    hasContent: false,
+    isAuthenticated: false,
+    user: null
   });
 
   useEffect(() => {
@@ -33,7 +38,9 @@ const Toolbar: React.FC<ToolbarProps> = () => {
     
     // Set up clipboard update listener
     if (window.electronAPI) {
+      console.log('Setting up clipboard update listener');
       window.electronAPI.onClipboardUpdate((data) => {
+        console.log('Clipboard update received:', data);
         setState(prev => ({
           ...prev,
           lineCount: data.lineCount,
@@ -41,12 +48,36 @@ const Toolbar: React.FC<ToolbarProps> = () => {
           hasContent: data.hasContent
         }));
       });
+      
+      // Set up authentication status listener
+      (window.electronAPI as any).onAuthStatus((data: any) => {
+        console.log('Auth status received:', data);
+        setState(prev => ({
+          ...prev,
+          isAuthenticated: data.isAuthenticated,
+          user: data.user
+        }));
+      });
+      
+      // Set up authentication state change listener
+      (window.electronAPI as any).onAuthStateChanged((data: any) => {
+        console.log('Auth state changed:', data);
+        setState(prev => ({
+          ...prev,
+          isAuthenticated: data.isAuthenticated,
+          user: data.user
+        }));
+      });
+    } else {
+      console.error('electronAPI not available in toolbar');
     }
     
     return () => {
       clearInterval(interval);
       if (window.electronAPI) {
         window.electronAPI.removeClipboardUpdateListener();
+        (window.electronAPI as any).removeAuthStatusListener();
+        (window.electronAPI as any).removeAuthStateChangedListener();
       }
     };
   }, []);
@@ -119,13 +150,29 @@ const Toolbar: React.FC<ToolbarProps> = () => {
 
   const shortcuts = getShortcutKeys();
 
+  const handleLogout = async () => {
+    if (window.electronAPI) {
+      try {
+        const result = await window.electronAPI.authLogout();
+        if (result.success) {
+          console.log('Logout successful');
+        } else {
+          console.error('Logout failed:', result.error);
+        }
+      } catch (error) {
+        console.error('Error during logout:', error);
+      }
+    }
+  };
+
   return (
     <div className="toolbar-container">
       <div className="toolbar-section" style={{
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        width: '100%'
+        width: '100%',
+        maxWidth: '700px'
       }}>
         {/* Left side - Shortcuts and counters */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
@@ -159,27 +206,9 @@ const Toolbar: React.FC<ToolbarProps> = () => {
               color: '#9ca3af'
             }}>
               <span>Lines:</span>
-              <span className="line-count" style={{
-                background: '#374151',
-                padding: '2px 6px',
-                borderRadius: '4px',
-                color: '#e5e7eb',
-                fontWeight: 'bold',
-                border: '1px solid #374151'
-              }}>
-                {state.lineCount}
-              </span>
+              <span className="line-count">{state.lineCount}</span>
               <span>Chars:</span>
-              <span className="char-count" style={{
-                background: '#374151',
-                padding: '2px 6px',
-                borderRadius: '4px',
-                color: '#e5e7eb',
-                fontWeight: 'bold',
-                border: '1px solid #374151'
-              }}>
-                {state.charCount}
-              </span>
+              <span className="char-count">{state.charCount}</span>
             </div>
           )}
         </div>
@@ -192,35 +221,157 @@ const Toolbar: React.FC<ToolbarProps> = () => {
             alignItems: 'center',
             gap: '8px'
           }}>
-            <div className={getStatusDotClass(state.status)}></div>
-            <span id="status-text">{state.statusText}</span>
+            {state.isAuthenticated ? (
+              <>
+                <div className={getStatusDotClass(state.status)}></div>
+                <span id="status-text">{state.statusText}</span>
+              </>
+            ) : (
+              <>
+                <div className="status-dot error"></div>
+                <span 
+                  id="status-text" 
+                  style={{ 
+                    color: '#ef4444', 
+                    fontWeight: '500',
+                    cursor: 'pointer',
+                    textDecoration: 'underline'
+                  }}
+                  onClick={() => {
+                    console.log('Login Required clicked');
+                    if (window.electronAPI) {
+                      console.log('electronAPI available, calling openAuthWebsite');
+                      window.electronAPI.openAuthWebsite();
+                    } else {
+                      console.error('electronAPI not available in toolbar');
+                    }
+                  }}
+                  title="Click to login"
+                >
+                  Login Required
+                </span>
+              </>
+            )}
           </div>
           
-          {/* Settings Button */}
-          <button 
-            className="settings-button"
-            onClick={() => {
-              // Send a custom event that the explanation window can listen for
-              window.postMessage({ type: 'open-settings-page' }, '*');
-            }}
-            style={{
-              background: 'transparent',
-              border: 'none',
-              color: '#e5e7eb',
-              padding: '6px',
-              borderRadius: '50%',
-              cursor: 'pointer',
-              fontSize: '16px',
-              width: '24px',
-              height: '24px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center'
-            }}
-            title="Settings"
-          >
-            ⋯
-          </button>
+          {/* Notebook Button - Only show when authenticated */}
+          {state.isAuthenticated && (
+            <button 
+              className="notebook-button"
+              onClick={() => {
+                console.log('Notebook button clicked');
+                if (window.electronAPI) {
+                  console.log('electronAPI available, calling openNotebookInExplanation');
+                  window.electronAPI.openNotebookInExplanation();
+                } else {
+                  console.error('electronAPI not available in toolbar');
+                }
+              }}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: '#e5e7eb',
+                padding: '6px 12px',
+                borderRadius: '20px',
+                cursor: 'pointer',
+                fontSize: '12px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginRight: '8px',
+                fontWeight: '500'
+              }}
+              title="Codebook"
+            >
+              codebook
+            </button>
+          )}
+
+          {/* Login/User Button */}
+          {state.isAuthenticated ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <button 
+                className="user-button"
+                onClick={() => {
+                  console.log('User profile clicked');
+                  // TODO: Show user profile or logout options
+                }}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#10b981',
+                  padding: '6px 12px',
+                  borderRadius: '20px',
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginRight: '8px',
+                  fontWeight: '500'
+                }}
+                title={`Logged in as ${state.user?.name || state.user?.email || 'User'}`}
+              >
+                {state.user?.name ? `👤 ${state.user.name}` : '👤 User'}
+              </button>
+              
+              <button 
+                className="logout-button"
+                onClick={handleLogout}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#ef4444',
+                  padding: '4px 8px',
+                  borderRadius: '12px',
+                  cursor: 'pointer',
+                  fontSize: '11px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontWeight: '500'
+                }}
+                title="Logout"
+              >
+                logout
+              </button>
+            </div>
+          ) : null}
+          
+          {/* Settings Button - Only show when authenticated */}
+          {state.isAuthenticated && (
+            <button 
+              className="settings-button"
+              onClick={() => {
+                console.log('Settings button clicked');
+                if (window.electronAPI) {
+                  console.log('electronAPI available, calling openSettingsPage');
+                  window.electronAPI.openSettingsPage();
+                } else {
+                  console.error('electronAPI not available in toolbar');
+                  // Fallback: Send a custom event that the explanation window can listen for
+                  window.postMessage({ type: 'open-settings-page' }, '*');
+                }
+              }}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: '#e5e7eb',
+                padding: '6px',
+                borderRadius: '50%',
+                cursor: 'pointer',
+                fontSize: '16px',
+                width: '24px',
+                height: '24px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}
+              title="Settings"
+            >
+              ⋯
+            </button>
+          )}
         </div>
       </div>
     </div>

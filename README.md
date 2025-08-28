@@ -1,4 +1,4 @@
-# CodeLens Translator
+# i cant code
 
 An AI-powered desktop application that provides intelligent code explanations using the Mistral language model. Select code from any application, press a global shortcut, and receive detailed explanations in a beautiful popup window.
 
@@ -98,7 +98,39 @@ npm run build:renderer
 
 # Package the application
 npm run package
+
+## 📦 Distribution
+
+### Building for Distribution
+To create distributable packages for users:
+
+```bash
+# Build for all platforms (requires cross-compilation setup)
+npm run dist
+
+# Build for specific platform
+npm run dist:mac      # macOS (DMG + ZIP)
+npm run dist:win      # Windows (NSIS + Portable)
+npm run dist:linux    # Linux (AppImage + DEB)
+
+# Use the automated build script
+./scripts/build-dist.sh    # macOS/Linux
+scripts\build-dist.bat     # Windows
 ```
+
+### Distribution Files
+After building, you'll find the packages in the `build/` directory:
+- **macOS**: `.dmg` installer and `.zip` archive
+- **Windows**: `.exe` installer and portable `.exe`
+- **Linux**: `.AppImage` and `.deb` package
+
+### User Installation
+Users can download and install the app using the [INSTALLATION.md](INSTALLATION.md) guide.
+
+### Prerequisites for Distribution
+- **macOS**: Requires code signing for distribution outside App Store
+- **Windows**: May require code signing for SmartScreen compatibility
+- **Linux**: AppImage works on most distributions
 
 ## 🎯 Usage
 

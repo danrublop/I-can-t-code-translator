@@ -1,6 +1,424 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom/client';
+import { UserProfile } from '../main/services/auth.service';
 import LetterGlitch from './LetterGlitch';
+import LicenseStatus from './components/LicenseStatus';
+
+// Function to parse markdown-style formatting from Mistral
+const parseMarkdown = (text: string): string => {
+  if (!text) return '';
+  
+  let parsed = text;
+  
+  // Convert headers (##, ###, ####, etc.)
+  parsed = parsed.replace(/^### (.*$)/gim, '<h3>$1</h3>');
+  parsed = parsed.replace(/^## (.*$)/gim, '<h2>$1</h2>');
+  parsed = parsed.replace(/^# (.*$)/gim, '<h1>$1</h1>');
+  
+  // Convert **text** to <strong>text</strong> for bold
+  parsed = parsed.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+  
+  // Convert *text* to <em>text</em> for italic
+  parsed = parsed.replace(/\*(.*?)\*/g, '<em>$1</em>');
+  
+  // Convert `text` to <code>text</code> for inline code
+  parsed = parsed.replace(/`(.*?)`/g, '<code>$1</code>');
+  
+  // Convert ```code``` blocks to <pre><code>code</code></pre>
+  parsed = parsed.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+  
+  // Convert unordered lists
+  parsed = parsed.replace(/^\- (.*$)/gim, '<li>$1</li>');
+  parsed = parsed.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
+  
+  // Convert ordered lists
+  parsed = parsed.replace(/^\d+\. (.*$)/gim, '<li>$1</li>');
+  parsed = parsed.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
+  
+  // Convert line breaks to <br>
+  parsed = parsed.replace(/\n/g, '<br>');
+  
+  return parsed;
+};
+
+// Notebook View Component
+const NotebookView: React.FC = () => {
+  const [explanations, setExplanations] = useState<any[]>([]);
+  const [filteredExplanations, setFilteredExplanations] = useState<any[]>([]);
+  const [selectedExplanation, setSelectedExplanation] = useState<any>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadExplanations();
+  }, []);
+
+  const loadExplanations = async () => {
+    try {
+      if (window.electronAPI) {
+        const result = await window.electronAPI.getAllExplanations();
+        if (result.success) {
+          setExplanations(result.explanations || []);
+          setFilteredExplanations(result.explanations || []);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading explanations:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);
+    if (!query.trim()) {
+      setFilteredExplanations(explanations);
+    } else {
+      const filtered = explanations.filter(exp => 
+        exp.title?.toLowerCase().includes(query.toLowerCase()) ||
+        exp.code?.toLowerCase().includes(query.toLowerCase()) ||
+        exp.explanation?.toLowerCase().includes(query.toLowerCase()) ||
+        exp.language?.toLowerCase().includes(query.toLowerCase())
+      );
+      setFilteredExplanations(filtered);
+    }
+  };
+
+  const selectExplanation = (exp: any) => {
+    setSelectedExplanation(exp);
+  };
+
+  const deleteExplanation = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this explanation?')) return;
+    
+    try {
+      if (window.electronAPI) {
+        const result = await window.electronAPI.deleteExplanation(id);
+        if (result.success) {
+          await loadExplanations();
+          if (selectedExplanation?.id === id) {
+            setSelectedExplanation(null);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error deleting explanation:', error);
+    }
+  };
+
+
+
+  if (loading) {
+    return (
+      <div style={{ padding: '40px', textAlign: 'center', color: '#9ca3af' }}>
+        <div className="spinner"></div>
+        <div>Loading notebook...</div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{
+      position: 'fixed',
+      top: '52px',
+      left: 0,
+      width: '100%',
+      height: 'calc(100% - 52px)',
+      background: '#000000',
+      color: '#e5e7eb',
+      overflow: 'hidden',
+      zIndex: 1000
+    }}>
+      {/* Main Content - Same format as explanation window */}
+      <div className="content" style={{ padding: '20px' }}>
+        <div className="main-content" style={{ 
+          display: 'flex', 
+          flexDirection: 'column', 
+          gap: '20px',
+          overflow: 'auto',
+          maxHeight: 'calc(100vh - 120px)',
+          paddingRight: '10px'
+        }}>
+          {/* Search Section - Top Container */}
+          <div className="search-section">
+            <div className="section-header">
+              <span>Search</span>
+            </div>
+            <input
+              type="text"
+              placeholder="Search by title, code, explanation, or language..."
+              value={searchQuery}
+              onChange={(e) => handleSearch(e.target.value)}
+              style={{
+                width: '300px',
+                padding: '8px 12px',
+                border: '1px solid #4b5563',
+                borderRadius: '6px',
+                background: '#374151',
+                color: '#e5e7eb',
+                fontSize: '14px',
+                outline: 'none'
+              }}
+              onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+              onBlur={(e) => e.target.style.borderColor = '#4b5563'}
+            />
+          </div>
+
+          {/* Explanations List Section */}
+          <div className="explanations-section">
+            <div className="section-header">
+              <span>Saved Explanations</span>
+              <span style={{ 
+                fontSize: '12px', 
+                color: '#9ca3af', 
+                marginLeft: 'auto',
+                padding: '2px 8px',
+                background: '#374151',
+                borderRadius: '4px'
+              }}>
+                {filteredExplanations.length} items
+              </span>
+            </div>
+            
+            <div className="explanations-list" style={{
+              border: '1px solid #374151',
+              borderRadius: '8px',
+              background: '#1f2937',
+              maxHeight: '300px',
+              overflow: 'auto'
+            }}>
+              {filteredExplanations.length === 0 ? (
+                <div style={{ 
+                  padding: '40px', 
+                  textAlign: 'center', 
+                  color: '#9ca3af',
+                  fontSize: '14px'
+                }}>
+                  {searchQuery ? 'No explanations found matching your search.' : 'No explanations saved yet.'}
+                </div>
+              ) : (
+                filteredExplanations.map((exp) => (
+                  <div
+                    key={exp.id}
+                    onClick={() => selectExplanation(exp)}
+                    style={{
+                      padding: '16px',
+                      borderBottom: '1px solid #374151',
+                      cursor: 'pointer',
+                      background: selectedExplanation?.id === exp.id ? '#1e40af' : 'transparent',
+                      transition: 'background 0.2s',
+                      borderLeft: selectedExplanation?.id === exp.id ? '4px solid #3b82f6' : '4px solid transparent'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (selectedExplanation?.id !== exp.id) {
+                        e.currentTarget.style.background = '#374151';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (selectedExplanation?.id !== exp.id) {
+                        e.currentTarget.style.background = 'transparent';
+                      }
+                    }}
+                  >
+                    <div style={{ 
+                      fontWeight: '600', 
+                      marginBottom: '8px', 
+                      color: '#f9fafb',
+                      fontSize: '14px'
+                    }}>
+                      {exp.language} {new Date(exp.timestamp).toLocaleDateString().replace(/\//g, '.')}
+                    </div>
+                    <div style={{ 
+                      fontSize: '12px', 
+                      color: '#9ca3af', 
+                      marginBottom: '8px',
+                      display: 'flex',
+                      gap: '12px',
+                      alignItems: 'center'
+                    }}>
+                      <span style={{
+                        background: '#374151',
+                        padding: '2px 6px',
+                        borderRadius: '3px',
+                        color: '#e5e7eb'
+                      }}>
+                        {exp.language}
+                      </span>
+                      <span>{new Date(exp.timestamp).toLocaleDateString()}</span>
+                    </div>
+                    <div style={{ 
+                      fontSize: '13px', 
+                      color: '#d1d5db', 
+                      lineHeight: '1.4',
+                      display: '-webkit-box',
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: 'vertical',
+                      overflow: 'hidden'
+                    }}>
+                      {exp.explanation.substring(0, 120)}...
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Selected Explanation Detail Section */}
+          {selectedExplanation && (
+            <div className="explanation-detail-section">
+              <div className="section-header">
+                <span>Explanation Details</span>
+                <button
+                  onClick={() => deleteExplanation(selectedExplanation.id)}
+                  style={{
+                    background: '#000000',
+                    color: '#ffffff',
+                    border: '2px solid #ffffff',
+                    padding: '4px 12px',
+                    borderRadius: '20px',
+                    fontSize: '12px',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    marginLeft: '8px',
+                    fontWeight: '500'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.transform = 'translateY(-1px)';
+                    e.currentTarget.style.boxShadow = '0 4px 8px rgba(255, 255, 255, 0.2)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = 'translateY(0)';
+                    e.currentTarget.style.boxShadow = 'none';
+                  }}
+                  title="Delete Explanation"
+                >
+                  Delete
+                </button>
+
+              </div>
+
+              {/* Code Section */}
+              <div className="code-section" style={{ marginBottom: '20px' }}>
+                <div className="code-viewer" style={{
+                  border: '1px solid #374151',
+                  borderRadius: '8px',
+                  background: '#1f2937',
+                  maxHeight: '200px',
+                  overflow: 'auto'
+                }}>
+                  <div>
+                    <pre style={{
+                      margin: 0,
+                      padding: '16px',
+                      fontSize: '13px',
+                      lineHeight: '1.4',
+                      color: '#e5e7eb',
+                      fontFamily: 'SF Mono, Monaco, Cascadia Code, Roboto Mono, Consolas, Courier New, monospace'
+                    }}>
+                      <code>{selectedExplanation.code}</code>
+                    </pre>
+                  </div>
+                </div>
+              </div>
+
+              {/* Explanation Section */}
+              <div className="explanation-content" style={{
+                border: '1px solid #374151',
+                borderRadius: '8px',
+                background: '#111827',
+                padding: '16px',
+                lineHeight: '1.6',
+                color: '#e5e7eb',
+                fontSize: '14px'
+              }}>
+                <span dangerouslySetInnerHTML={{ __html: parseMarkdown(selectedExplanation.explanation) }} />
+              </div>
+              
+              {/* Markdown Styles for Codebook */}
+              <style>{`
+                .explanation-content h1 {
+                  color: #f9fafb;
+                  font-size: 24px;
+                  font-weight: bold;
+                  margin: 20px 0 16px 0;
+                  padding-bottom: 8px;
+                  border-bottom: 2px solid #374151;
+                }
+                
+                .explanation-content h2 {
+                  color: #f3f4f6;
+                  font-size: 20px;
+                  font-weight: 600;
+                  margin: 18px 0 14px 0;
+                  padding-bottom: 6px;
+                  border-bottom: 1px solid #4b5563;
+                }
+                
+                .explanation-content h3 {
+                  color: #e5e7eb;
+                  font-size: 18px;
+                  font-weight: 600;
+                  margin: 16px 0 12px 0;
+                }
+                
+                .explanation-content ul, .explanation-content ol {
+                  margin: 12px 0;
+                  padding-left: 24px;
+                }
+                
+                .explanation-content li {
+                  margin: 6px 0;
+                  line-height: 1.5;
+                }
+                
+                .explanation-content pre {
+                  background: #1f2937;
+                  border: 1px solid #374151;
+                  border-radius: 6px;
+                  padding: 16px;
+                  margin: 16px 0;
+                  overflow-x: auto;
+                }
+                
+                .explanation-content pre code {
+                  background: transparent;
+                  padding: 0;
+                  border-radius: 0;
+                  color: #e5e7eb;
+                  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+                }
+                
+                .explanation-content code {
+                  background: #374151;
+                  padding: 2px 6px;
+                  border-radius: 4px;
+                  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+                  color: #10b981;
+                }
+                
+                .explanation-content strong {
+                  font-weight: bold;
+                  color: #fbbf24;
+                }
+                
+                .explanation-content em {
+                  font-style: italic;
+                  color: #a78bfa;
+                }
+                
+                .explanation-content br {
+                  margin: 8px 0;
+                }
+              `}</style>
+            </div>
+          )}
+
+
+        </div>
+      </div>
+    </div>
+  );
+};
 
 interface ExplanationData {
   code?: string;
@@ -15,7 +433,7 @@ interface ExplanationProps {}
 
 const Explanation: React.FC<ExplanationProps> = () => {
   const [data, setData] = useState<ExplanationData>({
-    status: 'processing' // Changed from 'idle' to start in main interface
+    status: 'idle' // Changed from 'processing' to 'idle' for initial state
   });
   const [detailLevel, setDetailLevel] = useState<'beginner' | 'intermediate' | 'expert'>('intermediate');
   const [isResizing, setIsResizing] = useState(false);
@@ -23,6 +441,10 @@ const Explanation: React.FC<ExplanationProps> = () => {
   const [startPos, setStartPos] = useState({ x: 0, y: 0 });
   const [showSettings, setShowSettings] = useState(false);
   const [showSettingsPage, setShowSettingsPage] = useState(false);
+  const [showNotebook, setShowNotebook] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [user, setUser] = useState<UserProfile | null>(null);
+  const [showLogin, setShowLogin] = useState(false);
   
   const resizeHandleRef = useRef<HTMLDivElement>(null);
   const windowRef = useRef<HTMLDivElement>(null);
@@ -66,25 +488,54 @@ const Explanation: React.FC<ExplanationProps> = () => {
         } else if (newData.status === 'completed' || newData.status === 'error') {
           // Final result
           setData(newData);
+          
+          // Auto-save completed explanations to notebook
+          console.log('Auto-save check - Status:', newData.status);
+          console.log('Auto-save check - Data:', newData);
+          console.log('Auto-save check - Has explanation:', !!newData.explanation);
+          console.log('Auto-save check - Has code:', !!newData.code);
+          console.log('Auto-save check - Has language:', !!newData.language);
+          
+          if (newData.status === 'completed' && newData.explanation && newData.code && newData.language) {
+            console.log('Auto-save triggered!');
+            autoSaveToNotebook(newData);
+          } else {
+            console.log('Auto-save skipped - missing required data');
+          }
         } else if (newData.status === 'processing' && data.explanation) {
           // Progress updates during generation
+          setData(newData);
+        } else if (newData.status === 'idle') {
+          // Initial state
           setData(newData);
         }
         // Don't change status for initial setup data
       });
-    } else {
-      console.error('electronAPI not available!');
       
-      // Fallback: try to listen for messages directly
-      console.log('Attempting fallback message listening...');
-      window.addEventListener('message', (event) => {
-        console.log('Received message event:', event);
-        if (event.data && event.data.type === 'explanation-data') {
-          console.log('Received explanation data via message event:', event.data.data);
-          setData(event.data.data);
-        }
-      });
-    }
+      // Listen for authentication status
+      if (window.electronAPI) {
+        (window.electronAPI as any).onAuthStatus((authData: any) => {
+          console.log('Received auth status in explanation window:', authData);
+          setIsAuthenticated(authData.isAuthenticated);
+          setUser(authData.user);
+          
+          // Onboarding is now handled by the website during authentication
+          console.log('Onboarding handled by website - skipping local onboarding');
+        });
+      } else {
+        console.error('electronAPI not available!');
+        
+        // Fallback: try to listen for messages directly
+        console.log('Attempting fallback message listening...');
+        window.addEventListener('message', (event) => {
+          console.log('Received message event:', event);
+          if (event.data && event.data.type === 'explanation-data') {
+            console.log('Received explanation data via message event:', event.data.data);
+            setData(event.data.data);
+          }
+        });
+      }
+    } // Add missing closing brace for the if (window.electronAPI) statement
 
     // Listen for settings page requests from toolbar
     const handleMessage = (event: MessageEvent) => {
@@ -92,12 +543,42 @@ const Explanation: React.FC<ExplanationProps> = () => {
         console.log('Received open-settings-page request from toolbar');
         setShowSettingsPage(true);
         setShowSettings(false);
+        setShowNotebook(false);
       }
     };
     
     window.addEventListener('message', handleMessage);
 
-    // Set up window controls
+    // Listen for notebook requests from toolbar
+    if (window.electronAPI) {
+      window.electronAPI.onOpenNotebookInExplanation(() => {
+        console.log('Received open-notebook-in-explanation request from toolbar');
+        setShowNotebook(true);
+        setShowSettingsPage(false);
+        setShowSettings(false);
+      });
+    }
+
+    // Listen for test onboarding message
+    const handleTestOnboarding = (event: MessageEvent) => {
+      if (event.data && event.data.type === 'test-onboarding') {
+        console.log('Received test-onboarding request');
+        // Onboarding is now handled by the website
+      }
+    };
+    
+    window.addEventListener('message', handleTestOnboarding);
+
+    // Check authentication status - simplified for development
+    const checkAuthStatus = async () => {
+      // For development, we'll start with no authentication
+      setIsAuthenticated(false);
+      setUser(null);
+    };
+    
+    checkAuthStatus();
+    
+    // Set up window controls immediately
     setupWindowControls();
     
     // Set up resize functionality
@@ -109,6 +590,9 @@ const Explanation: React.FC<ExplanationProps> = () => {
         window.electronAPI.removeExplanationDataListener();
       }
       window.removeEventListener('message', handleMessage);
+      
+      // Track session end
+      // onboardingService.trackSessionEnd(); // Removed onboardingService
     };
   }, []);
 
@@ -148,26 +632,31 @@ const Explanation: React.FC<ExplanationProps> = () => {
     const maximizeBtn = document.getElementById('maximize-btn');
 
     if (closeBtn) {
-      closeBtn.addEventListener('click', () => {
-        window.close();
+      closeBtn.addEventListener('click', async () => {
+        if (window.electronAPI) {
+          await window.electronAPI.windowClose();
+        } else {
+          // Fallback: close window directly
+          window.close();
+        }
       });
     }
 
     if (minimizeBtn) {
-      minimizeBtn.addEventListener('click', () => {
-        // Minimize window (Electron will handle this)
+      minimizeBtn.addEventListener('click', async () => {
         if (window.electronAPI) {
-          // Could implement custom minimize logic here
+          await window.electronAPI.windowMinimize();
         }
+        // Note: No fallback for minimize in frameless window
       });
     }
 
     if (maximizeBtn) {
-      maximizeBtn.addEventListener('click', () => {
-        // Toggle maximize/restore
+      maximizeBtn.addEventListener('click', async () => {
         if (window.electronAPI) {
-          // Could implement custom maximize logic here
+          await window.electronAPI.windowMaximize();
         }
+        // Note: No fallback for maximize in frameless window
       });
     }
   };
@@ -225,11 +714,16 @@ const Explanation: React.FC<ExplanationProps> = () => {
         const result = await window.electronAPI.translateCode(data.code, level);
         
         if (result.success) {
-          setData(prev => ({
-            ...prev,
+          const newData = {
+            ...data,
             explanation: result.explanation,
-            status: 'completed'
-          }));
+            status: 'completed' as const
+          };
+          
+          setData(newData);
+          
+          // Auto-save the new explanation to notebook
+          autoSaveToNotebook(newData);
         } else {
           setData(prev => ({
             ...prev,
@@ -244,6 +738,52 @@ const Explanation: React.FC<ExplanationProps> = () => {
           error: error instanceof Error ? error.message : 'Unknown error'
         }));
       }
+    }
+  };
+
+  const handleLogout = async () => {
+    setIsAuthenticated(false);
+    setUser(null);
+  };
+
+  // Auto-save completed explanations to notebook
+  const autoSaveToNotebook = async (explanationData: ExplanationData) => {
+    console.log('autoSaveToNotebook called with:', explanationData);
+    
+    if (!explanationData.explanation || !explanationData.code || !explanationData.language) {
+      console.log('Missing required data for auto-save');
+      console.log('explanation:', !!explanationData.explanation);
+      console.log('code:', !!explanationData.code);
+      console.log('language:', !!explanationData.language);
+      return;
+    }
+
+    try {
+      console.log('Attempting to save to notebook...');
+      if (window.electronAPI) {
+        const saveData = {
+          code: explanationData.code,
+          language: explanationData.language,
+          explanation: explanationData.explanation,
+          title: `Code Explanation - ${explanationData.language}`,
+          tags: [explanationData.language, 'auto-saved'],
+          timestamp: new Date().toISOString()
+        };
+
+        console.log('Save data prepared:', saveData);
+        const result = await window.electronAPI.saveExplanation(saveData);
+        console.log('Save result:', result);
+        
+        if (result.success) {
+          console.log('Auto-saved explanation to notebook:', result.explanation);
+        } else {
+          console.error('Failed to auto-save explanation:', result.error);
+        }
+      } else {
+        console.error('electronAPI not available for saving');
+      }
+    } catch (error) {
+      console.error('Error auto-saving explanation:', error);
     }
   };
 
@@ -297,21 +837,9 @@ const Explanation: React.FC<ExplanationProps> = () => {
     return colorMap[language.toLowerCase()] || '#3b82f6';
   };
 
-  // Function to parse markdown-style formatting from Mistral
-  const parseMarkdown = (text: string): string => {
-    if (!text) return '';
-    
-    // Convert **text** to <strong>text</strong> for bold
-    let parsed = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    
-    // Convert *text* to <em>text</em> for italic (if needed)
-    parsed = parsed.replace(/\*(.*?)\*/g, '<em>$1</em>');
-    
-    // Convert `text` to <code>text</code> for inline code
-    parsed = parsed.replace(/`(.*?)`/g, '<code>$1</code>');
-    
-    return parsed;
-  };
+
+
+
 
   const renderContent = () => {
     switch (data.status) {
@@ -323,7 +851,7 @@ const Explanation: React.FC<ExplanationProps> = () => {
           }}>
             {data.explanation ? (
               <div>
-                <pre style={{
+                <div style={{
                   whiteSpace: 'pre-wrap',
                   wordWrap: 'break-word',
                   fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
@@ -332,10 +860,14 @@ const Explanation: React.FC<ExplanationProps> = () => {
                   color: '#e5e7eb',
                   margin: 0,
                   padding: '20px',
-                  background: 'transparent'
+                  background: 'transparent',
+                  userSelect: 'text',
+                  WebkitUserSelect: 'text',
+                  MozUserSelect: 'text',
+                  msUserSelect: 'text'
                 }}>
                   <span dangerouslySetInnerHTML={{ __html: parseMarkdown(data.explanation) }} />
-                </pre>
+                </div>
               </div>
             ) : (
               <div className="loading">
@@ -353,7 +885,7 @@ const Explanation: React.FC<ExplanationProps> = () => {
               minHeight: 'auto',
               overflow: 'visible'
             }}>
-              <pre style={{
+              <div style={{
                 whiteSpace: 'pre-wrap',
                 wordWrap: 'break-word',
                 fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
@@ -362,10 +894,14 @@ const Explanation: React.FC<ExplanationProps> = () => {
                 color: '#e5e7eb',
                 margin: 0,
                 padding: '20px',
-                background: 'transparent'
+                background: 'transparent',
+                userSelect: 'text',
+                WebkitUserSelect: 'text',
+                MozUserSelect: 'text',
+                msUserSelect: 'text'
               }}>
                 <span dangerouslySetInnerHTML={{ __html: parseMarkdown(data.explanation || '') }} />
-              </pre>
+              </div>
             </div>
           );
         } else {
@@ -408,12 +944,7 @@ const Explanation: React.FC<ExplanationProps> = () => {
               height: '100%',
               zIndex: 1
             }}>
-              <LetterGlitch
-                glitchSpeed={50}
-                centerVignette={true}
-                outerVignette={false}
-                smooth={true}
-              />
+              
             </div>
             
             {/* Content Overlay */}
@@ -439,53 +970,9 @@ const Explanation: React.FC<ExplanationProps> = () => {
                 
               </h1>
               
-              {/* Progress Bar */}
-              {data.status !== 'idle' && typeof data.progress === 'number' ? (
-                <div style={{
-                  width: '400px',
-                  height: '8px',
-                  background: '#374151',
-                  borderRadius: '4px',
-                  overflow: 'hidden',
-                  margin: '0 auto'
-                }}>
-                  <div style={{
-                    width: `${data.progress}%`,
-                    height: '100%',
-                    background: 'linear-gradient(90deg, #61dca3, #61b3dc)',
-                    borderRadius: '4px',
-                    transition: 'width 0.3s ease'
-                  }}></div>
-                </div>
-              ) : (
-                <div style={{
-                  width: '400px',
-                  height: '8px',
-                  background: '#374151',
-                  borderRadius: '4px',
-                  overflow: 'hidden',
-                  margin: '0 auto'
-                }}>
-                  <div style={{
-                    width: '100%',
-                    height: '100%',
-                    background: 'linear-gradient(90deg, #61dca3, #61b3dc)',
-                    borderRadius: '4px',
-                    animation: 'progress-animation 2s ease-in-out infinite'
-                  }}></div>
-                </div>
-              )}
-              
-              {/* CSS Animation for Progress Bar */}
             </div>
             
-            {/* CSS Animation for Progress Bar */}
             <style>{`
-              @keyframes progress-animation {
-                0% { transform: translateX(-100%); }
-                100% { transform: translateX(100%); }
-              }
-              
               @keyframes cursor-blink {
                 0%, 50% { opacity: 1; }
                 51%, 100% { opacity: 0; }
@@ -560,37 +1047,112 @@ const Explanation: React.FC<ExplanationProps> = () => {
             WebkitAppRegion: 'no-drag' // Prevents dragging on buttons
           } as any)
         }}>
-          <div className="control-button close" style={{
-            width: '12px',
-            height: '12px',
-            borderRadius: '50%',
-            background: '#ff5f56',
-            border: '1px solid #e0443e'
-          }}></div>
-          <div className="control-button minimize" style={{
-            width: '12px',
-            height: '12px',
-            borderRadius: '50%',
-            background: '#ffbd2e',
-            border: '1px solid #dea123'
-          }}></div>
-          <div className="control-button maximize" style={{
-            width: '12px',
-            height: '12px',
-            borderRadius: '50%',
-            background: '#27ca3f',
-            border: '1px solid #1aab29'
-          }}></div>
+          <div 
+            id="close-btn"
+            className="control-button close" 
+            onClick={async () => {
+              if (window.electronAPI) {
+                await window.electronAPI.windowClose();
+              } else {
+                window.close();
+              }
+            }}
+            style={{
+              width: '12px',
+              height: '12px',
+              borderRadius: '50%',
+              background: '#ff5f56',
+              border: '1px solid #e0443e',
+              cursor: 'pointer'
+            }}
+          ></div>
+          <div 
+            id="minimize-btn"
+            className="control-button minimize" 
+            onClick={async () => {
+              if (window.electronAPI) {
+                await window.electronAPI.windowMinimize();
+              }
+            }}
+            style={{
+              width: '12px',
+              height: '12px',
+              borderRadius: '50%',
+              background: '#ffbd2e',
+              border: '1px solid #dea123',
+              cursor: 'pointer'
+            }}
+          ></div>
+          <div 
+            id="maximize-btn"
+            className="control-button maximize" 
+            onClick={async () => {
+              if (window.electronAPI) {
+                await window.electronAPI.windowMaximize();
+              }
+            }}
+            style={{
+              width: '12px',
+              height: '12px',
+              borderRadius: '50%',
+              background: '#27ca3f',
+              border: '1px solid #1aab29',
+              cursor: 'pointer'
+            }}
+          ></div>
         </div>
         
-        {/* Right side - Settings button */}
+        {/* Right side - Home, Notebook and Settings buttons */}
         <div className="header-actions" style={{
+          display: 'flex',
+          gap: '8px',
           ...({
-            WebkitAppRegion: 'no-drag' // Prevents dragging on button
+            WebkitAppRegion: 'no-drag' // Prevents dragging on buttons
           } as any)
         }}>
           <button
-            onClick={() => setShowSettingsPage(true)}
+            onClick={() => {
+              setShowNotebook(false);
+              setShowSettingsPage(false);
+            }}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: '#e5e7eb',
+              fontSize: '12px',
+              cursor: 'pointer',
+              padding: '6px 12px',
+              borderRadius: '20px',
+              fontWeight: '500'
+            }}
+            title="Home"
+          >
+            home
+          </button>
+          <button
+            onClick={() => {
+              setShowNotebook(true);
+              setShowSettingsPage(false);
+            }}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: '#e5e7eb',
+              fontSize: '12px',
+              cursor: 'pointer',
+              padding: '6px 12px',
+              borderRadius: '20px',
+              fontWeight: '500'
+            }}
+            title="Codebook"
+          >
+            codebook
+          </button>
+          <button
+            onClick={() => {
+              setShowSettingsPage(true);
+              setShowNotebook(false);
+            }}
             style={{
               background: 'transparent',
               border: 'none',
@@ -598,11 +1160,8 @@ const Explanation: React.FC<ExplanationProps> = () => {
               fontSize: '18px',
               cursor: 'pointer',
               padding: '4px 8px',
-              borderRadius: '4px',
-              transition: 'background 0.2s'
+              borderRadius: '4px'
             }}
-            onMouseEnter={(e) => e.currentTarget.style.background = '#374151'}
-            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
             title="Settings"
           >
             ⋯
@@ -624,33 +1183,55 @@ const Explanation: React.FC<ExplanationProps> = () => {
         zIndex: 999
       }}>
         <div style={{ fontSize: '12px', fontWeight: '500', color: '#e5e7eb', textAlign: 'center' }}>
-          {showSettingsPage ? 'Settings & Debug' : 'Highlight text in any app and press Cmd+Shift+T'}
+          {showSettingsPage ? 'Settings & Debug' : 
+           showNotebook ? 'Codebook' : 
+           'Copy text in any app and press Cmd+Shift+T'}
         </div>
         
-        {/* X button appears only on settings page */}
-        {showSettingsPage && (
-          <button
-            onClick={() => setShowSettingsPage(false)}
-            style={{
-              background: 'transparent',
-              color: '#e5e7eb',
-              border: 'none',
-              fontSize: '14px',
-              cursor: 'pointer',
-              padding: '2px 6px',
-              borderRadius: '3px',
-              transition: 'background 0.2s',
-              position: 'absolute',
-              right: '20px'
-            }}
-            onMouseEnter={(e) => e.currentTarget.style.background = '#374151'}
-            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-            title="Close Settings"
-          >
-            ×
-          </button>
-        )}
+        {/* License Status */}
+        <LicenseStatus />
+        
+        {/* Navigation buttons */}
+        <div style={{ position: 'absolute', right: '20px', display: 'flex', gap: '8px' }}>
+          {showSettingsPage && (
+            <button
+              onClick={() => setShowSettingsPage(false)}
+              style={{
+                background: 'transparent',
+                color: '#e5e7eb',
+                border: 'none',
+                fontSize: '14px',
+                cursor: 'pointer',
+                padding: '2px 6px',
+                borderRadius: '3px'
+              }}
+              title="Close Settings"
+            >
+              ×
+            </button>
+          )}
+          
+          {showNotebook && (
+            <button
+              onClick={() => setShowNotebook(false)}
+              style={{
+                background: 'transparent',
+                color: '#e5e7eb',
+                border: 'none',
+                fontSize: '14px',
+                cursor: 'pointer',
+                padding: '2px 6px',
+                borderRadius: '3px'
+              }}
+              title="Close Notebook"
+            >
+              ×
+            </button>
+          )}
+        </div>
       </div>
+
+
 
       {/* Settings Page */}
       {showSettingsPage ? (
@@ -677,27 +1258,26 @@ const Explanation: React.FC<ExplanationProps> = () => {
                 {['beginner', 'intermediate', 'expert'].map((level) => (
                   <button
                     key={level}
-                    onClick={() => setDetailLevel(level as 'beginner' | 'intermediate' | 'expert')}
+                    onClick={() => handleDetailLevelChange(level as 'beginner' | 'intermediate' | 'expert')}
                     style={{
-                      background: detailLevel === level ? '#6b7280' : '#374151',
-                      color: '#e5e7eb',
-                      border: 'none',
+                      background: detailLevel === level ? '#ffffff' : '#000000',
+                      color: detailLevel === level ? '#000000' : '#ffffff',
+                      border: '2px solid #ffffff',
                       padding: '10px 20px',
-                      borderRadius: '6px',
+                      borderRadius: '20px',
                       fontSize: '14px',
                       cursor: 'pointer',
-                      transition: 'background 0.2s',
-                      textTransform: 'capitalize'
+                      transition: 'all 0.2s',
+                      textTransform: 'capitalize',
+                      fontWeight: '500'
                     }}
                     onMouseEnter={(e) => {
-                      if (detailLevel !== level) {
-                        e.currentTarget.style.background = '#4b5563';
-                      }
+                      e.currentTarget.style.transform = 'translateY(-1px)';
+                      e.currentTarget.style.boxShadow = '0 4px 8px rgba(255, 255, 255, 0.2)';
                     }}
                     onMouseLeave={(e) => {
-                      if (detailLevel !== level) {
-                        e.currentTarget.style.background = '#374151';
-                      }
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.boxShadow = 'none';
                     }}
                   >
                     {level}
@@ -728,38 +1308,96 @@ const Explanation: React.FC<ExplanationProps> = () => {
                 <button
                   onClick={() => console.log('Current state:', { data, detailLevel })}
                   style={{
-                    background: '#374151',
-                    color: '#e5e7eb',
-                    border: 'none',
+                    background: '#000000',
+                    color: '#ffffff',
+                    border: '2px solid #ffffff',
                     padding: '10px 16px',
-                    borderRadius: '6px',
+                    borderRadius: '20px',
                     fontSize: '14px',
                     cursor: 'pointer',
-                    transition: 'background 0.2s'
+                    transition: 'all 0.2s',
+                    fontWeight: '500'
                   }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = '#4b5563'}
-                  onMouseLeave={(e) => e.currentTarget.style.background = '#374151'}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = '#ffffff';
+                    e.currentTarget.style.color = '#000000';
+                    e.currentTarget.style.transform = 'translateY(-1px)';
+                    e.currentTarget.style.boxShadow = '0 4px 8px rgba(255, 255, 255, 0.2)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = '#000000';
+                    e.currentTarget.style.color = '#ffffff';
+                    e.currentTarget.style.transform = 'translateY(0)';
+                    e.currentTarget.style.boxShadow = 'none';
+                  }}
                 >
                   Log State to Console
                 </button>
                 <button
                   onClick={() => console.log('Testing translation API...')}
                   style={{
-                    background: '#374151',
-                    color: '#e5e7eb',
-                    border: 'none',
+                    background: '#000000',
+                    color: '#ffffff',
+                    border: '2px solid #ffffff',
                     padding: '10px 16px',
-                    borderRadius: '6px',
+                    borderRadius: '20px',
                     fontSize: '14px',
                     cursor: 'pointer',
-                    transition: 'background 0.2s'
+                    transition: 'all 0.2s',
+                    fontWeight: '500'
                   }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = '#4b5563'}
-                  onMouseLeave={(e) => e.currentTarget.style.background = '#374151'}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = '#ffffff';
+                    e.currentTarget.style.color = '#000000';
+                    e.currentTarget.style.transform = 'translateY(-1px)';
+                    e.currentTarget.style.boxShadow = '0 4px 8px rgba(255, 255, 255, 0.2)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = '#000000';
+                    e.currentTarget.style.color = '#ffffff';
+                    e.currentTarget.style.transform = 'translateY(0)';
+                    e.currentTarget.style.boxShadow = 'none';
+                  }}
                 >
                   Test Translation API
                 </button>
               </div>
+            </div>
+
+            {/* Logout Section */}
+            <div style={{
+              marginBottom: '24px'
+            }}>
+              <h2 style={{ fontSize: '22px', marginBottom: '16px', color: '#f9fafb' }}>Account</h2>
+              <button
+                onClick={handleLogout}
+                style={{
+                  background: 'transparent',
+                  border: '2px solid #ef4444',
+                  color: '#ef4444',
+                  fontSize: '14px',
+                  cursor: 'pointer',
+                  padding: '12px 24px',
+                  borderRadius: '8px',
+                  transition: 'all 0.2s',
+                  fontWeight: '500'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#ef4444';
+                  e.currentTarget.style.color = '#ffffff';
+                  e.currentTarget.style.transform = 'translateY(-1px)';
+                  e.currentTarget.style.boxShadow = '0 4px 8px rgba(239, 68, 68, 0.3)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'transparent';
+                  e.currentTarget.style.color = '#ef4444';
+                  e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.boxShadow = 'none';
+                }}
+                title="Logout"
+              >
+                Logout
+              </button>
             </div>
 
             {/* Raw Data Display */}
@@ -786,6 +1424,8 @@ const Explanation: React.FC<ExplanationProps> = () => {
             </div>
           </div>
         </div>
+      ) : showNotebook ? (
+        <NotebookView />
       ) : (
         <>
           {/* Main Content */}
@@ -804,6 +1444,7 @@ const Explanation: React.FC<ExplanationProps> = () => {
               maxHeight: 'calc(100vh - 120px)', // Account for header and padding
               paddingRight: '10px' // Add some padding for scrollbar
             }} ref={mainContentRef} onScroll={handleScroll}>
+              
               {/* Code Section - Top Container */}
               <div className="code-section">
                 <div className="section-header">
@@ -827,6 +1468,7 @@ const Explanation: React.FC<ExplanationProps> = () => {
                       {data.language}
                     </span>
                   )}
+
                 </div>
                 <div className="code-viewer" id="code-viewer" style={{
                   maxHeight: '200px',
@@ -850,13 +1492,24 @@ const Explanation: React.FC<ExplanationProps> = () => {
                     <div className="loading">
                       <div className="spinner"></div>
                       <div>Waiting for code...</div>
-                      <div style={{ fontSize: '11px', marginTop: '8px', color: '#6b7280' }}>
-                        Highlight text in any app and press Cmd+Shift+T
-                      </div>
                     </div>
                   )}
                 </div>
+                
+                                  {/* LetterGlitch Component Below Code Container - Only show when waiting for code */}
+                  {!data.code && (
+                    <div style={{ marginTop: '20px', height: '400px' }}>
+                      <LetterGlitch
+                        glitchSpeed={50}
+                        centerVignette={true}
+                        outerVignette={false}
+                        smooth={true}
+                      />
+                    </div>
+                  )}
               </div>
+              
+
               
               {/* AI Explanation Section - Flows naturally on the page */}
               <div id="explanation-content" style={{
@@ -865,12 +1518,92 @@ const Explanation: React.FC<ExplanationProps> = () => {
               }}>
                 {renderContent()}
               </div>
+              
+              {/* Markdown Styles */}
+              <style>{`
+                #explanation-content h1 {
+                  color: #f9fafb;
+                  font-size: 24px;
+                  font-weight: bold;
+                  margin: 20px 0 16px 0;
+                  padding-bottom: 8px;
+                  border-bottom: 2px solid #374151;
+                }
+                
+                #explanation-content h2 {
+                  color: #f3f4f6;
+                  font-size: 20px;
+                  font-weight: 600;
+                  margin: 18px 0 14px 0;
+                  padding-bottom: 6px;
+                  border-bottom: 1px solid #4b5563;
+                }
+                
+                #explanation-content h3 {
+                  color: #e5e7eb;
+                  font-size: 18px;
+                  font-weight: 600;
+                  margin: 16px 0 12px 0;
+                }
+                
+                #explanation-content ul, #explanation-content ol {
+                  margin: 12px 0;
+                  padding-left: 24px;
+                }
+                
+                #explanation-content li {
+                  margin: 6px 0;
+                  line-height: 1.5;
+                }
+                
+                #explanation-content pre {
+                  background: #1f2937;
+                  border: 1px solid #374151;
+                  border-radius: 6px;
+                  padding: 16px;
+                  margin: 16px 0;
+                  overflow-x: auto;
+                }
+                
+                #explanation-content pre code {
+                  background: transparent;
+                  padding: 0;
+                  border-radius: 0;
+                  color: #e5e7eb;
+                  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+                }
+                
+                #explanation-content code {
+                  background: #374151;
+                  padding: 2px 6px;
+                  border-radius: 4px;
+                  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+                  color: #10b981;
+                }
+                
+                #explanation-content strong {
+                  font-weight: bold;
+                  color: #fbbf24;
+                }
+                
+                #explanation-content em {
+                  font-style: italic;
+                  color: #a78bfa;
+                }
+                
+                #explanation-content br {
+                  margin: 8px 0;
+                }
+              `}</style>
+              
+
             </div>
           </div>
         </>
       )}
       
       <div className="resize-handle" id="resize-handle" ref={resizeHandleRef}></div>
+      
     </div>
   );
 };

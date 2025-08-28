@@ -9,6 +9,12 @@ dist/
 build/
 out/
 
+# Website build files (separate hosting)
+website/.next/
+website/out/
+website/build/
+website/dist/
+
 # Electron build
 app/
 packages/
@@ -104,3 +110,4 @@ jspm_packages/
 
 # TernJS port file
 .tern-port
+

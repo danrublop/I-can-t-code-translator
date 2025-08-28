@@ -2,24 +2,54 @@ import { app, BrowserWindow, globalShortcut, ipcMain, clipboard } from 'electron
 import { join } from 'path';
 import { OllamaService } from './services/ollama.service';
 import { CodeAnalysisService } from './services/code-analysis.service';
+import { analyticsService } from './services/analytics.service';
+import { authService } from './services/auth.service';
+import { gamificationService } from './services/gamification.service';
+import { WEBSITE_CONFIG } from './config/website';
+import { LicenseService } from './services/license.service';
+import { LICENSING_CONFIG } from './config/licensing.config';
+import { writeFile, readFile, existsSync, mkdirSync } from 'fs';
+import { promisify } from 'util';
+
+// Promisify file operations
+const writeFileAsync = promisify(writeFile);
+const readFileAsync = promisify(readFile);
 
 class MainProcess {
   private mainWindow: BrowserWindow | null = null;
   private explanationWindow: BrowserWindow | null = null;
+  private websiteAuthWindow: BrowserWindow | null = null;
   private ollamaService: OllamaService;
   private codeAnalysisService: CodeAnalysisService;
+  private licenseService: LicenseService;
+  // private explanationStorageService: ExplanationStorageService;
   private isToolbarVisible = true;
   private clipboardWatcher: NodeJS.Timeout | null = null;
   private lastClipboardContent = '';
+  private savedExplanations: any[] = []; // In-memory storage for saved explanations
+  private explanationsFilePath: string;
 
   constructor() {
     this.ollamaService = new OllamaService();
     this.codeAnalysisService = new CodeAnalysisService();
+    this.licenseService = new LicenseService();
+    // this.explanationStorageService = new ExplanationStorageService();
+    
+    // Set up persistent storage path for explanations
+    const userDataPath = app.getPath('userData');
+    const explanationsDir = join(userDataPath, 'explanations');
+    if (!existsSync(explanationsDir)) {
+      mkdirSync(explanationsDir, { recursive: true });
+    }
+    this.explanationsFilePath = join(explanationsDir, 'explanations.json');
   }
 
   async initialize(): Promise<void> {
     // Wait for Electron to be ready
     await app.whenReady();
+
+    // Load existing explanations from file
+    await this.loadExplanationsFromFile();
 
     // Create the main toolbar window
     this.createMainWindow();
@@ -30,13 +60,28 @@ class MainProcess {
     // Set up IPC handlers
     this.setupIpcHandlers();
 
-    // Start clipboard monitoring
-    this.startClipboardMonitoring();
-
     // Handle app lifecycle
     this.handleAppLifecycle();
 
-    console.log('CodeLens Translator initialized successfully');
+    // Track app launch
+    analyticsService.trackAppLaunch();
+    
+    console.log('i cant code - Initialized successfully');
+  }
+
+  private checkAndShowOnboarding(): void {
+    // Only show onboarding for authenticated users
+    if (!authService.isAuthenticated()) {
+      console.log('User not authenticated - skipping onboarding');
+      return;
+    }
+    
+    console.log('Checking if authenticated user needs onboarding...');
+    
+    // For authenticated users, check if they need onboarding
+    // The explanation window will check localStorage and show onboarding if needed
+    // No delay - create window immediately to prevent white popup
+    this.createExplanationWindow();
   }
 
   private createMainWindow(): void {
@@ -47,19 +92,15 @@ class MainProcess {
 
     // Get screen dimensions
     const { screen } = require('electron');
-    const primaryDisplay = screen.getPrimaryDisplay();
-    const { width: screenWidth } = primaryDisplay.workAreaSize;
 
-    // Calculate toolbar position (center at top) with original dimensions
-    const toolbarWidth = Math.min(800, screenWidth);
+    // Calculate toolbar position (center at top) with content-based dimensions
     const toolbarHeight = 40;
-    const toolbarX = Math.round((screenWidth - toolbarWidth) / 2);
-    const toolbarY = 0;
+    const toolbarY = 50; // Move down from top to avoid menu bar
 
     this.mainWindow = new BrowserWindow({
-      width: toolbarWidth,
+      width: 700, // Sweet spot - enough space without excess
       height: toolbarHeight,
-      x: toolbarX,
+      x: 0, // Will center after content loads
       y: toolbarY,
       frame: false,
       resizable: true,
@@ -81,15 +122,156 @@ class MainProcess {
 
     // Wait for the window to be ready before sending data
     this.mainWindow.webContents.on('did-finish-load', () => {
-      console.log('Toolbar loaded and ready');
+      console.log('i cant code - Toolbar loaded and ready');
+      
+      // Center the window after content loads
+      if (this.mainWindow) {
+        const { width: contentWidth } = this.mainWindow.getContentBounds();
+        const { width: screenWidth } = screen.getPrimaryDisplay().workAreaSize;
+        const toolbarX = Math.round((screenWidth - contentWidth) / 2);
+        this.mainWindow.setPosition(toolbarX, toolbarY);
+      }
+      
+      // Start clipboard monitoring now that the window is ready
+      this.startClipboardMonitoring();
       
       // Send initial clipboard data
       this.updateLineCount(clipboard.readText());
+      
+      // Check authentication status and notify the renderer
+      const isAuthenticated = authService.isAuthenticated();
+      console.log('User authentication status:', isAuthenticated);
+      
+      // Send authentication status to the main window
+      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+        this.mainWindow.webContents.send('auth-status', {
+          isAuthenticated,
+          user: authService.getUser()
+        });
+      }
+      
+      // Only check for onboarding if user is authenticated
+      if (isAuthenticated) {
+        this.checkAndShowOnboarding();
+      } else {
+        console.log('User not authenticated - login required in main window');
+      }
     });
 
     this.mainWindow.on('closed', () => {
       this.mainWindow = null;
     });
+  }
+
+  private createExplanationWindow(): void {
+    if (this.explanationWindow) {
+      console.log('Explanation window already exists, focusing...');
+      this.explanationWindow.focus();
+      return;
+    }
+
+    console.log('Creating new explanation window...');
+    
+    // Create explanation window
+    this.explanationWindow = new BrowserWindow({
+      width: 800,
+      height: 600,
+      frame: false, // Remove default frame to show custom header
+      resizable: true,
+      alwaysOnTop: false,
+      show: false, // Don't show until ready to prevent white flash
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        preload: join(__dirname, 'preload.js')
+      }
+    });
+
+    console.log('Explanation window created, loading HTML...');
+    
+    // Load explanation HTML
+    const explanationPath = join(__dirname, '..', 'explanation.html');
+    console.log('Loading explanation window from:', explanationPath);
+    
+    this.explanationWindow.loadFile(explanationPath).catch(error => {
+      console.error('Failed to load explanation window:', error);
+    });
+
+    this.explanationWindow.webContents.on('did-finish-load', () => {
+      console.log('i cant code - Explanation window loaded and ready');
+      
+      // Send authentication status to explanation window
+      const isAuthenticated = authService.isAuthenticated();
+      const user = authService.getUser();
+      
+      if (this.explanationWindow && !this.explanationWindow.isDestroyed()) {
+        this.explanationWindow.webContents.send('auth-status', {
+          isAuthenticated,
+          user
+        });
+      }
+      
+      // Send initial message to explanation window
+      console.log('Sending initial message to explanation window');
+      this.sendExplanationData({
+        status: 'idle', // Changed from 'processing' to 'idle' for initial state
+        hasExplanation: false,
+        explanationLength: 0
+      });
+      
+      // Show the window after everything is ready
+      console.log('Showing explanation window...');
+      if (this.explanationWindow && !this.explanationWindow.isDestroyed()) {
+        this.explanationWindow.show();
+        console.log('Explanation window shown successfully');
+      }
+    });
+
+    this.explanationWindow.on('closed', () => {
+      console.log('Explanation window closed');
+      this.explanationWindow = null;
+    });
+  }
+
+  private createWebsiteAuthWindow(url: string): void {
+    // Create a window for the website authentication
+    const authWindow = new BrowserWindow({
+      width: 1200,
+      height: 800,
+      frame: true, // Show frame for website navigation
+      resizable: true,
+      alwaysOnTop: false,
+      show: false, // Don't show until ready to prevent white flash
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        preload: join(__dirname, 'preload-website.js')
+      }
+    });
+
+    // Load the website URL
+    authWindow.loadURL(url);
+
+    // Show window when ready to prevent white flash
+    authWindow.once('ready-to-show', () => {
+      authWindow.show();
+    });
+
+    // Handle window close - ensure it's properly cleaned up
+    authWindow.on('closed', () => {
+      console.log('Website auth window closed');
+      this.websiteAuthWindow = null;
+    });
+
+    // Handle page load errors
+    authWindow.webContents.on('did-fail-load', () => {
+      console.log('Website auth window failed to load, closing...');
+      authWindow.close();
+      this.websiteAuthWindow = null;
+    });
+
+    // Store reference to close it later
+    this.websiteAuthWindow = authWindow;
   }
 
   private registerGlobalShortcuts(): void {
@@ -111,11 +293,30 @@ class MainProcess {
   }
 
   private async handleTranslationShortcut(): Promise<void> {
+    // Check if user is authenticated
+    if (!authService.isAuthenticated()) {
+      console.log('User not authenticated - showing login prompt');
+      this.showNotification(
+        'Authentication Required', 
+        'Please log in using the login button in the toolbar first.'
+      );
+      
+      // Focus the main window to show the login button
+      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+        this.mainWindow.focus();
+        this.mainWindow.show();
+      }
+      return;
+    }
+
+    let clipboardContent = '';
+    let language = '';
+    
     try {
       console.log('Translation shortcut triggered - checking for highlighted text...');
       
       // Get current clipboard content
-      let clipboardContent = clipboard.readText();
+      clipboardContent = clipboard.readText();
       
       // If no content, show instructions to the user
       if (!clipboardContent.trim()) {
@@ -130,8 +331,11 @@ class MainProcess {
       console.log(`Found text in clipboard: ${clipboardContent.substring(0, 100)}...`);
 
       // Analyze the code
-      const language = await this.codeAnalysisService.detectLanguage(clipboardContent);
+      language = await this.codeAnalysisService.detectLanguage(clipboardContent);
       console.log(`Detected language: ${language}`);
+      
+      // Track explanation request
+      analyticsService.trackExplanationRequest(language, clipboardContent.length);
       
       // Create explanation window
       this.createExplanationWindow();
@@ -145,6 +349,8 @@ class MainProcess {
 
       // Generate AI explanation with progress tracking
       console.log('Starting AI explanation generation...');
+      
+      const startTime = Date.now();
       
       // Send initial progress
       this.sendExplanationData({
@@ -179,99 +385,57 @@ class MainProcess {
       ]);
       
       console.log('AI explanation received, length:', explanation.length);
-      
-      // Ensure the explanation window is still open before sending data
-      if (this.explanationWindow && !this.explanationWindow.isDestroyed()) {
-        // Send final explanation data
-        this.sendExplanationData({
-          code: clipboardContent,
-          language: language,
-          explanation: explanation,
-          status: 'completed',
-          progress: 100
-        });
         
-        console.log('Final explanation data sent to window');
-      } else {
-        console.log('Explanation window is no longer available');
+      // Track explanation completion
+      const responseTime = Date.now() - startTime;
+      analyticsService.trackExplanationCompleted(language, clipboardContent.length, responseTime, true);
+      
+      // Award points for successful explanation
+      const points = gamificationService.calculatePointsForRequest(language, clipboardContent.length);
+      await authService.addPoints(points);
+      
+      // Check for achievements
+      const user = authService.getUser();
+      if (user) {
+        // Check for first request achievement
+        if (user.totalRequests === 1) {
+          const achievement = gamificationService.unlockAchievement('first_request');
+          if (achievement) {
+            this.showNotification(
+              'Achievement Unlocked! 🏆', 
+              `You've unlocked: ${achievement.name} - ${achievement.description}`
+            );
+          }
+        }
       }
-
-      console.log('Explanation generated successfully');
-
-    } catch (error) {
-      console.error('Error handling translation shortcut:', error);
+      
+      // Send final explanation data
       this.sendExplanationData({
+        code: clipboardContent,
+        language: language,
+        explanation: explanation,
+        status: 'completed',
+        progress: 100
+      });
+      
+    } catch (error) {
+      console.error('Error in translation shortcut:', error);
+      
+      // Send error to explanation window
+      this.sendExplanationData({
+        code: clipboardContent || '',
+        language: language || 'unknown',
+        explanation: '',
         status: 'error',
         error: error instanceof Error ? error.message : 'Unknown error occurred'
       });
-    }
-  }
-
-  private createExplanationWindow(): void {
-    if (this.explanationWindow) {
-      this.explanationWindow.focus();
-      return;
-    }
-
-    // Get screen dimensions
-    const { screen } = require('electron');
-    const primaryDisplay = screen.getPrimaryDisplay();
-    const { width: screenWidth } = primaryDisplay.workAreaSize;
-
-    // Calculate explanation window position (right side)
-    const explanationWidth = 600;
-    const explanationHeight = 700;
-    const explanationX = screenWidth - explanationWidth - 20; // 20px margin from right edge
-    const explanationY = 100; // Fixed position from top
-
-    this.explanationWindow = new BrowserWindow({
-      width: explanationWidth,
-      height: explanationHeight,
-      x: explanationX,
-      y: explanationY,
-      minWidth: 600,
-      minHeight: 400,
-      frame: false,
-      resizable: true,
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: true,
-        preload: join(__dirname, 'preload.js')
-      }
-    });
-
-    // Fix the path to load from the correct dist directory
-    const explanationPath = join(__dirname, '..', 'explanation.html');
-    console.log('Loading explanation window from:', explanationPath);
-    
-    this.explanationWindow.loadFile(explanationPath).catch(error => {
-      console.error('Failed to load explanation window:', error);
-    });
-
-    // Wait for the window to be ready before sending data
-    this.explanationWindow.webContents.on('did-finish-load', () => {
-      console.log('Explanation window loaded and ready');
       
-      // Open developer tools for debugging
-      this.explanationWindow?.webContents.openDevTools();
-      
-      // Send a test message to verify IPC communication
-      setTimeout(() => {
-        console.log('Sending test message to verify IPC communication');
-        this.sendExplanationData({
-          status: 'processing',
-          code: 'Test code',
-          language: 'javascript',
-          explanation: 'This is a test message to verify IPC communication is working.',
-          progress: 50
-        });
-      }, 1000);
-    });
-
-    this.explanationWindow.on('closed', () => {
-      console.log('Explanation window closed');
-      this.explanationWindow = null;
-    });
+      // Show error notification
+      this.showNotification(
+        'Error', 
+        'Failed to generate explanation. Please try again.'
+      );
+    }
   }
 
   private sendExplanationData(data: any): void {
@@ -318,8 +482,416 @@ class MainProcess {
 
     // Handle open-settings-page request from toolbar
     ipcMain.on('open-settings-page', () => {
-      if (this.explanationWindow && !this.explanationWindow.isDestroyed()) {
-        this.explanationWindow.webContents.send('open-settings-page');
+      // Check if user is authenticated
+      if (!authService.isAuthenticated()) {
+        this.showNotification(
+          'Authentication Required', 
+          'Please log in first to access settings.'
+        );
+        return;
+      }
+      
+      // Ensure explanation window is open
+      if (!this.explanationWindow || this.explanationWindow.isDestroyed()) {
+        this.createExplanationWindow();
+      }
+      
+      // Wait a moment for the window to be ready, then send the message
+      setTimeout(() => {
+        if (this.explanationWindow && !this.explanationWindow.isDestroyed()) {
+          this.explanationWindow.webContents.send('open-settings-page');
+        }
+      }, 500);
+    });
+
+    // Handle open-notebook-in-explanation request from toolbar
+    ipcMain.on('open-notebook-in-explanation', () => {
+      // Check if user is authenticated
+      if (!authService.isAuthenticated()) {
+        this.showNotification(
+          'Authentication Required', 
+          'Please log in first to access the codebook.'
+        );
+        return;
+      }
+      
+      // Ensure explanation window is open
+      if (!this.explanationWindow || this.explanationWindow.isDestroyed()) {
+        this.createExplanationWindow();
+      }
+      
+      // Wait a moment for the window to be ready, then send the message
+      setTimeout(() => {
+        if (this.explanationWindow && !this.explanationWindow.isDestroyed()) {
+          this.explanationWindow.webContents.send('open-notebook-in-explanation');
+        }
+      }, 500);
+    });
+
+    // Handle save-explanation request
+    ipcMain.handle('save-explanation', async (_, data) => {
+      try {
+        // Check if user is authenticated
+        if (!authService.isAuthenticated()) {
+          return { 
+            success: false, 
+            error: 'Authentication required. Please log in first.' 
+          };
+        }
+
+        console.log('Saving explanation to notebook:', data);
+        
+        // For now, we'll use a simple in-memory storage
+        // In a real app, you'd save to a database or file
+        const savedExplanation = {
+          id: Date.now().toString(), // Simple ID generation
+          ...data,
+          timestamp: data.timestamp || new Date().toISOString()
+        };
+
+        // Store in memory and persist to file
+        if (!this.savedExplanations) {
+          this.savedExplanations = [];
+        }
+        this.savedExplanations.push(savedExplanation);
+
+        // Save to file for persistence
+        await this.saveExplanationsToFile();
+
+        console.log('Explanation saved successfully:', savedExplanation);
+        
+        return { 
+          success: true, 
+          explanation: savedExplanation 
+        };
+      } catch (error) {
+        console.error('Error saving explanation:', error);
+        return { 
+          success: false, 
+          error: error instanceof Error ? error.message : 'Unknown error' 
+        };
+      }
+    });
+
+    // Handle get-all-explanations request
+    ipcMain.handle('get-all-explanations', async () => {
+      try {
+        // Check if user is authenticated
+        if (!authService.isAuthenticated()) {
+          return { 
+            success: false, 
+            error: 'Authentication required. Please log in first.' 
+          };
+        }
+
+        const explanations = this.savedExplanations || [];
+        console.log('Retrieved explanations:', explanations.length);
+        
+        return { 
+          success: true, 
+          explanations 
+        };
+      } catch (error) {
+        console.error('Error getting explanations:', error);
+        return { 
+          success: false, 
+          error: error instanceof Error ? error.message : 'Unknown error' 
+        };
+      }
+    });
+
+    // Handle delete-explanation request
+    ipcMain.handle('delete-explanation', async (_, id: string) => {
+      try {
+        // Check if user is authenticated
+        if (!authService.isAuthenticated()) {
+          return { 
+            success: false, 
+            error: 'Authentication required. Please log in first.' 
+          };
+        }
+
+        const index = this.savedExplanations.findIndex(exp => exp.id === id);
+        if (index === -1) {
+          return { 
+            success: false, 
+            error: 'Explanation not found' 
+          };
+        }
+
+        // Remove from memory
+        this.savedExplanations.splice(index, 1);
+
+        // Save to file for persistence
+        await this.saveExplanationsToFile();
+
+        console.log('Explanation deleted successfully:', id);
+        
+        return { 
+          success: true 
+        };
+      } catch (error) {
+        console.error('Error deleting explanation:', error);
+        return { 
+          success: false, 
+          error: error instanceof Error ? error.message : 'Unknown error' 
+        };
+      }
+    });
+
+    // Handle license info requests
+    ipcMain.handle('get-license-info', async () => {
+      try {
+        const licenseInfo = this.licenseService.getLicenseInfo();
+        const isFreeMode = LICENSING_CONFIG.mode === 'free';
+        
+        return { 
+          success: true, 
+          licenseInfo,
+          isFreeMode,
+          config: LICENSING_CONFIG
+        };
+      } catch (error) {
+        console.error('Error getting license info:', error);
+        return { 
+          success: false, 
+          error: error instanceof Error ? error.message : 'Unknown error' 
+        };
+      }
+    });
+
+    // Handle trial start requests
+    ipcMain.handle('start-trial', async () => {
+      try {
+        this.licenseService.startTrial();
+        console.log('Trial started successfully');
+        
+        return { 
+          success: true, 
+          licenseInfo: this.licenseService.getLicenseInfo()
+        };
+      } catch (error) {
+        console.error('Error starting trial:', error);
+        return { 
+          success: false, 
+          error: error instanceof Error ? error.message : 'Unknown error' 
+        };
+      }
+    });
+
+    // Handle translation requests
+    ipcMain.handle('translate-code', async (_, { code, detailLevel }) => {
+      // Check if user is authenticated
+      if (!authService.isAuthenticated()) {
+        return { 
+          success: false, 
+          error: 'Authentication required. Please log in first.' 
+        };
+      }
+      
+      try {
+        console.log('Translation request received:', { codeLength: code.length, detailLevel });
+        
+        // Detect language
+        const language = await this.codeAnalysisService.detectLanguage(code);
+        console.log(`Detected language: ${language}`);
+        
+        // Generate explanation
+        const explanation = await this.ollamaService.generateExplanation(code, language, detailLevel);
+        
+        return { success: true, explanation, language };
+      } catch (error) {
+        console.error('Translation error:', error);
+        return { 
+          success: false, 
+          error: error instanceof Error ? error.message : 'Unknown error' 
+        };
+      }
+    });
+
+    // Handle website authentication opening
+    ipcMain.handle('open-auth-website', async () => {
+      try {
+        // Open the website login page in an Electron window
+        const loginUrl = WEBSITE_CONFIG.getLoginUrl();
+        console.log('Opening authentication website in Electron window:', loginUrl);
+        
+        // Create a new window for the website
+        this.createWebsiteAuthWindow(loginUrl);
+        return { success: true };
+      } catch (error) {
+        return { 
+          success: false, 
+          error: error instanceof Error ? error.message : 'Unknown error' 
+        };
+      }
+    });
+
+    // Handle authentication success from website
+    ipcMain.handle('auth-success', async (_, userData) => {
+      try {
+        console.log('Authentication successful:', userData);
+        
+        // DON'T close the website auth window immediately - let user click continue button
+        // The window will be closed when user clicks "Return to Application"
+        
+        // Update the auth service with user data
+        await authService.setUserAuthenticated(userData);
+        
+        // Notify the main window about authentication state change
+        if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+          this.mainWindow.webContents.send('auth-state-changed', {
+            isAuthenticated: true,
+            user: authService.getUser()
+          });
+        }
+        
+        // Don't show notification - it creates a white popup window
+        // this.showNotification(
+        //   'Welcome! 🎉', 
+        //   'You are now logged in and can use all features of the application.'
+        // );
+        
+        return { success: true };
+      } catch (error) {
+        console.error('Error handling auth success:', error);
+        return { 
+          success: false, 
+          error: error instanceof Error ? error.message : 'Unknown error' 
+        };
+      }
+    });
+
+    // Handle user clicking "Return to Application" button
+    ipcMain.handle('continue-to-application', async () => {
+      try {
+        console.log('User clicked continue to application');
+        
+        // Close the website auth window
+        if (this.websiteAuthWindow && !this.websiteAuthWindow.isDestroyed()) {
+          console.log('Closing website auth window...');
+          this.websiteAuthWindow.close();
+          this.websiteAuthWindow = null;
+          console.log('Website auth window closed successfully');
+        }
+        
+        // Now that user is authenticated, trigger the main app flow
+        console.log('User authenticated, transitioning to main app...');
+        
+        // Ensure main window is focused and visible
+        if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+          console.log('Focusing main window...');
+          this.mainWindow.focus();
+          this.mainWindow.show();
+        }
+        
+        // Trigger the onboarding/explanation flow
+        console.log('Creating explanation window...');
+        this.checkAndShowOnboarding();
+        
+        return { success: true };
+      } catch (error) {
+        console.error('Error handling continue to application:', error);
+        return { 
+          success: false, 
+          error: error instanceof Error ? error.message : 'Unknown error' 
+        };
+      }
+    });
+
+    // Handle authentication state refresh
+    ipcMain.handle('auth-refresh-state', async () => {
+      try {
+        const isAuthenticated = authService.isAuthenticated();
+        const user = authService.getUser();
+        
+        return { 
+          success: true, 
+          isAuthenticated, 
+          user 
+        };
+      } catch (error) {
+        return { 
+          success: false, 
+          error: error instanceof Error ? error.message : 'Unknown error' 
+        };
+      }
+    });
+
+    // Handle logout
+    ipcMain.handle('auth-logout', async () => {
+      try {
+        await authService.logout();
+        
+        // Close explanation window if open
+        if (this.explanationWindow && !this.explanationWindow.isDestroyed()) {
+          this.explanationWindow.close();
+          this.explanationWindow = null;
+        }
+        
+        // Notify the main window about authentication state change
+        if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+          this.mainWindow.webContents.send('auth-state-changed', {
+            isAuthenticated: false,
+            user: null
+          });
+        }
+        
+        // Show logout notification
+        this.showNotification(
+          'Logged Out', 
+          'You have been logged out. Please log in again to continue.'
+        );
+        
+        return { success: true };
+      } catch (error) {
+        console.error('Error during logout:', error);
+        return { 
+          success: false, 
+          error: error instanceof Error ? error.message : 'Unknown error' 
+        };
+      }
+    });
+
+    // Handle window control operations
+    ipcMain.handle('window-close', () => {
+      try {
+        if (this.explanationWindow && !this.explanationWindow.isDestroyed()) {
+          this.explanationWindow.close();
+          this.explanationWindow = null;
+        }
+        return { success: true };
+      } catch (error) {
+        console.error('Error closing window:', error);
+        return { success: false, error: 'Failed to close window' };
+      }
+    });
+
+    ipcMain.handle('window-minimize', () => {
+      try {
+        if (this.explanationWindow && !this.explanationWindow.isDestroyed()) {
+          this.explanationWindow.minimize();
+        }
+        return { success: true };
+      } catch (error) {
+        console.error('Error minimizing window:', error);
+        return { success: false, error: 'Failed to minimize window' };
+      }
+    });
+
+    ipcMain.handle('window-maximize', () => {
+      try {
+        if (this.explanationWindow && !this.explanationWindow.isDestroyed()) {
+          if (this.explanationWindow.isMaximized()) {
+            this.explanationWindow.unmaximize();
+          } else {
+            this.explanationWindow.maximize();
+          }
+        }
+        return { success: true };
+      } catch (error) {
+        console.error('Error maximizing window:', error);
+        return { success: false, error: 'Failed to maximize window' };
       }
     });
   }
@@ -353,7 +925,6 @@ class MainProcess {
 
   private stopClipboardMonitoring(): void {
     if (this.clipboardWatcher) {
-      clearInterval(this.clipboardWatcher);
       this.clipboardWatcher = null;
     }
   }
@@ -373,7 +944,34 @@ class MainProcess {
 
     app.on('before-quit', () => {
       this.stopClipboardMonitoring();
+      // Save explanations before quitting
+      this.saveExplanationsToFile();
     });
+  }
+
+  private async loadExplanationsFromFile(): Promise<void> {
+    try {
+      if (existsSync(this.explanationsFilePath)) {
+        const data = await readFileAsync(this.explanationsFilePath, 'utf8');
+        this.savedExplanations = JSON.parse(data);
+        console.log(`Loaded ${this.savedExplanations.length} explanations from file`);
+      } else {
+        this.savedExplanations = [];
+        console.log('No existing explanations file found, starting with empty list');
+      }
+    } catch (error) {
+      console.error('Error loading explanations from file:', error);
+      this.savedExplanations = [];
+    }
+  }
+
+  private async saveExplanationsToFile(): Promise<void> {
+    try {
+      await writeFileAsync(this.explanationsFilePath, JSON.stringify(this.savedExplanations, null, 2), 'utf8');
+      console.log(`Saved ${this.savedExplanations.length} explanations to file`);
+    } catch (error) {
+      console.error('Error saving explanations to file:', error);
+    }
   }
 
   private showNotification(title: string, message: string): void {
@@ -418,13 +1016,6 @@ class MainProcess {
               font-size: 14px;
               line-height: 1.4;
             }
-            .shortcut {
-              background: #374151;
-              padding: 4px 8px;
-              border-radius: 4px;
-              font-family: monospace;
-              margin: 0 4px;
-            }
           </style>
         </head>
         <body>
@@ -434,15 +1025,18 @@ class MainProcess {
       </html>
     `);
 
-    // Auto-close after 5 seconds
+    // Auto-close after 3 seconds
     setTimeout(() => {
       if (!notificationWindow.isDestroyed()) {
         notificationWindow.close();
       }
-    }, 5000);
+    }, 3000);
   }
 }
 
-// Initialize the application
+// Create and initialize the main process
 const mainProcess = new MainProcess();
-mainProcess.initialize().catch(console.error);
+mainProcess.initialize().catch(error => {
+  console.error('Failed to initialize main process:', error);
+  app.quit();
+});

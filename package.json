@@ -1,16 +1,28 @@
 {
-  "name": "codelens-translator",
-  "version": "1.0.0",
+  "name": "i-cant-code",
+  "version": "1.0.1",
   "description": "AI-powered code explanations using Mistral language model",
   "main": "dist/main/main.js",
   "scripts": {
-    "dev": "concurrently \"npm run build:renderer\" \"npm run build:main\" \"wait-on dist/renderer.js && electron .\"",
+    "dev": "concurrently \"npm run watch:renderer\" \"npm run build:main\" \"wait-on dist/explanation.js && electron .\"",
+    "dev:renderer": "webpack serve --mode development",
+    "dev:hot": "concurrently \"npm run watch:renderer\" \"npm run build:main\" \"wait-on dist/explanation.js && electron .\"",
+    "watch:renderer": "webpack --mode development --watch",
     "build:renderer": "tsc -p tsconfig.renderer.json && webpack --mode development",
     "build:main": "tsc -p tsconfig.main.json",
     "build": "npm run build:main && npm run build:renderer",
+    "build:prod": "npm run build:main && npm run build:renderer:prod",
+    "build:renderer:prod": "tsc -p tsconfig.renderer.json && webpack --config webpack.prod.config.js",
     "start": "electron .",
-    "package": "npm run build && electron-builder",
-    "dist": "npm run build && electron-builder --publish=never",
+    "package": "npm run build:prod && electron-builder",
+    "dist": "npm run build:prod && electron-builder --publish=never",
+    "dist:mac": "npm run build:prod && electron-builder --mac",
+    "dist:win": "npm run build:prod && electron-builder --win",
+    "dist:linux": "npm run build:prod && electron-builder --linux",
+    "build:mac": "npm run build:prod && electron-builder --mac --publish=never",
+    "build:win": "npm run build:prod && electron-builder --win --publish=never",
+    "build:linux": "npm run build:prod && electron-builder --linux --publish=never",
+    "postinstall": "electron-builder install-app-deps",
     "demo": "node scripts/demo.js",
     "setup": "bash scripts/setup.sh",
     "setup:win": "scripts\\setup.bat"
@@ -34,36 +46,98 @@
     "electron": "^28.0.0",
     "electron-builder": "^24.0.0",
     "html-webpack-plugin": "^5.5.0",
+    "semver": "^7.7.2",
     "style-loader": "^3.3.0",
     "ts-loader": "^9.4.0",
     "typescript": "^5.0.0",
     "wait-on": "^7.0.0",
     "webpack": "^5.88.0",
-    "webpack-cli": "^5.1.0"
+    "webpack-cli": "^5.1.0",
+    "webpack-dev-server": "^5.2.2"
   },
   "dependencies": {
     "axios": "^1.6.0",
+    "keytar": "^7.9.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
   "build": {
-    "appId": "com.codelens.translator",
-    "productName": "CodeLens Translator",
+    "appId": "com.icantcode.app",
+    "productName": "i cant code",
     "directories": {
-      "output": "build"
+      "output": "build",
+      "buildResources": "build-resources"
     },
     "files": [
       "dist/**/*",
-      "node_modules/**/*"
+      "node_modules/**/*",
+      "!node_modules/**/*.map",
+      "!**/*.ts",
+      "!src/**/*"
     ],
     "mac": {
-      "category": "public.app-category.developer-tools"
+      "category": "public.app-category.developer-tools",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "build-resources/icon.icns"
     },
     "win": {
-      "target": "nsis"
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build-resources/icon.png"
     },
     "linux": {
-      "target": "AppImage"
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build-resources/icon.png",
+      "category": "Development"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "dmg": {
+      "title": "i cant code"
     }
   }
 }

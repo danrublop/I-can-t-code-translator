@@ -19,9 +19,9 @@ An AI-powered desktop application that provides intelligent code explanations us
 
 **One-click downloads for your platform:**
 
-- **🍎 macOS**: [Download .dmg file](https://github.com/danrublop/code-translator/releases/latest/download/i-cant-code-mac.dmg)
-- **🪟 Windows**: [Download .exe file](https://github.com/danrublop/code-translator/releases/latest/download/i-cant-code-win.exe) 
-- **🐧 Linux**: [Download .AppImage file](https://github.com/danrublop/code-translator/releases/latest/download/i-cant-code-linux.AppImage)
+- **🍎 macOS**: [Download .dmg file](https://github.com/danrublop/code-translator/releases/latest)
+- **🪟 Windows**: [Download .exe file](https://github.com/danrublop/code-translator/releases/latest)
+- **🐧 Linux**: [Download .AppImage file](https://github.com/danrublop/code-translator/releases/latest)
 
 ### **💻 Installation Steps:**
 
@@ -45,6 +45,9 @@ An AI-powered desktop application that provides intelligent code explanations us
 ### **📋 Alternative Download:**
 - Visit: [GitHub Releases](https://github.com/danrublop/code-translator/releases)
 - Choose the latest version for your platform
+
+### **⚠️ Note:**
+The one-click download links will work once GitHub Actions completes building v1.0.2. Currently, you can download from the releases page above.
 
 ## 🏗️ Architecture
 

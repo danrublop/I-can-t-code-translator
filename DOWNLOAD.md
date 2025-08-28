@@ -5,25 +5,27 @@
 **Choose your platform and click to download:**
 
 ### 🍎 macOS
-**[Download .dmg file](https://github.com/danrublop/code-translator/releases/latest/download/i-cant-code-mac.dmg)**
+**[Download .dmg file](https://github.com/danrublop/code-translator/releases/latest)**
 
 **Installation:**
-1. Download the .dmg file above
-2. Double-click the downloaded file
-3. Drag the "i cant code" app to your Applications folder
-4. Launch from Applications or Spotlight (Cmd+Space)
+1. Click the download link above
+2. Find the macOS .dmg file in the releases page
+3. Download and double-click the .dmg file
+4. Drag the "i cant code" app to your Applications folder
+5. Launch from Applications or Spotlight (Cmd+Space)
 
 ### 🪟 Windows
-**[Download .exe file](https://github.com/danrublop/code-translator/releases/latest/download/i-cant-code-win.exe)**
+**[Download .exe file](https://github.com/danrublop/code-translator/releases/latest)**
 
 **Installation:**
-1. Download the .exe file above
-2. Run the installer
-3. Follow the installation wizard
-4. Launch from Start menu or desktop shortcut
+1. Click the download link above
+2. Find the Windows .exe file in the releases page
+3. Download and run the installer
+4. Follow the installation wizard
+5. Launch from Start menu or desktop shortcut
 
 ### 🐧 Linux
-**[Download .AppImage file](https://github.com/danrublop/code-translator/releases/latest/download/i-cant-code-linux.AppImage)**
+**[Download .AppImage file](https://github.com/danrublop/code-translator/releases/latest)**
 
 **Installation:**
 1. Download the .AppImage file above

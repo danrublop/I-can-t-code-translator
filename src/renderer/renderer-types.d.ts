@@ -46,6 +46,8 @@ declare global {
       getAllExplanations: () => Promise<{ success: boolean; explanations?: any[]; error?: string }>;
       searchExplanations: (query: string) => Promise<{ success: boolean; explanations?: any[]; error?: string }>;
       deleteExplanation: (id: string) => Promise<{ success: boolean; error?: string }>;
+      getLicenseInfo: () => Promise<{ success: boolean; licenseInfo?: any; error?: string }>;
+      startTrial: () => Promise<{ success: boolean; error?: string }>;
       getAllTags: () => Promise<{ success: boolean; tags?: string[]; error?: string }>;
       getAllLanguages: () => Promise<{ success: boolean; languages?: string[]; error?: string }>;
       exportExplanations: (format: 'json' | 'markdown') => Promise<{ success: boolean; data?: string; error?: string }>;

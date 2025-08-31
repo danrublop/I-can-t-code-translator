@@ -1,42 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom/client';
 import { UserProfile } from '../main/services/auth.service';
-import LetterGlitch from './LetterGlitch';
-import LicenseStatus from './components/LicenseStatus';
 
 // Function to parse markdown-style formatting from Mistral
 const parseMarkdown = (text: string): string => {
   if (!text) return '';
   
-  let parsed = text;
-  
-  // Convert headers (##, ###, ####, etc.)
-  parsed = parsed.replace(/^### (.*$)/gim, '<h3>$1</h3>');
-  parsed = parsed.replace(/^## (.*$)/gim, '<h2>$1</h2>');
-  parsed = parsed.replace(/^# (.*$)/gim, '<h1>$1</h1>');
-  
   // Convert **text** to <strong>text</strong> for bold
-  parsed = parsed.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+  let parsed = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
   
-  // Convert *text* to <em>text</em> for italic
+  // Convert *text* to <em>text</em> for italic (if needed)
   parsed = parsed.replace(/\*(.*?)\*/g, '<em>$1</em>');
   
   // Convert `text` to <code>text</code> for inline code
   parsed = parsed.replace(/`(.*?)`/g, '<code>$1</code>');
-  
-  // Convert ```code``` blocks to <pre><code>code</code></pre>
-  parsed = parsed.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
-  
-  // Convert unordered lists
-  parsed = parsed.replace(/^\- (.*$)/gim, '<li>$1</li>');
-  parsed = parsed.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
-  
-  // Convert ordered lists
-  parsed = parsed.replace(/^\d+\. (.*$)/gim, '<li>$1</li>');
-  parsed = parsed.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
-  
-  // Convert line breaks to <br>
-  parsed = parsed.replace(/\n/g, '<br>');
   
   return parsed;
 };
@@ -333,83 +310,6 @@ const NotebookView: React.FC = () => {
               }}>
                 <span dangerouslySetInnerHTML={{ __html: parseMarkdown(selectedExplanation.explanation) }} />
               </div>
-              
-              {/* Markdown Styles for Codebook */}
-              <style>{`
-                .explanation-content h1 {
-                  color: #f9fafb;
-                  font-size: 24px;
-                  font-weight: bold;
-                  margin: 20px 0 16px 0;
-                  padding-bottom: 8px;
-                  border-bottom: 2px solid #374151;
-                }
-                
-                .explanation-content h2 {
-                  color: #f3f4f6;
-                  font-size: 20px;
-                  font-weight: 600;
-                  margin: 18px 0 14px 0;
-                  padding-bottom: 6px;
-                  border-bottom: 1px solid #4b5563;
-                }
-                
-                .explanation-content h3 {
-                  color: #e5e7eb;
-                  font-size: 18px;
-                  font-weight: 600;
-                  margin: 16px 0 12px 0;
-                }
-                
-                .explanation-content ul, .explanation-content ol {
-                  margin: 12px 0;
-                  padding-left: 24px;
-                }
-                
-                .explanation-content li {
-                  margin: 6px 0;
-                  line-height: 1.5;
-                }
-                
-                .explanation-content pre {
-                  background: #1f2937;
-                  border: 1px solid #374151;
-                  border-radius: 6px;
-                  padding: 16px;
-                  margin: 16px 0;
-                  overflow-x: auto;
-                }
-                
-                .explanation-content pre code {
-                  background: transparent;
-                  padding: 0;
-                  border-radius: 0;
-                  color: #e5e7eb;
-                  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
-                }
-                
-                .explanation-content code {
-                  background: #374151;
-                  padding: 2px 6px;
-                  border-radius: 4px;
-                  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
-                  color: #10b981;
-                }
-                
-                .explanation-content strong {
-                  font-weight: bold;
-                  color: #fbbf24;
-                }
-                
-                .explanation-content em {
-                  font-style: italic;
-                  color: #a78bfa;
-                }
-                
-                .explanation-content br {
-                  margin: 8px 0;
-                }
-              `}</style>
             </div>
           )}
 
@@ -970,9 +870,53 @@ const Explanation: React.FC<ExplanationProps> = () => {
                 
               </h1>
               
+              {/* Progress Bar */}
+              {data.status !== 'idle' && typeof data.progress === 'number' ? (
+                <div style={{
+                  width: '400px',
+                  height: '8px',
+                  background: '#374151',
+                  borderRadius: '4px',
+                  overflow: 'hidden',
+                  margin: '0 auto'
+                }}>
+                  <div style={{
+                    width: `${data.progress}%`,
+                    height: '100%',
+                    background: 'linear-gradient(90deg, #61dca3, #61b3dc)',
+                    borderRadius: '4px',
+                    transition: 'width 0.3s ease'
+                  }}></div>
+                </div>
+              ) : (
+                <div style={{
+                  width: '400px',
+                  height: '8px',
+                  background: '#374151',
+                  borderRadius: '4px',
+                  overflow: 'hidden',
+                  margin: '0 auto'
+                }}>
+                  <div style={{
+                    width: '100%',
+                    height: '100%',
+                    background: 'linear-gradient(90deg, #61dca3, #61b3dc)',
+                    borderRadius: '4px',
+                    animation: 'progress-animation 2s ease-in-out infinite'
+                  }}></div>
+                </div>
+              )}
+              
+              {/* CSS Animation for Progress Bar */}
             </div>
             
+            {/* CSS Animation for Progress Bar */}
             <style>{`
+              @keyframes progress-animation {
+                0% { transform: translateX(-100%); }
+                100% { transform: translateX(100%); }
+              }
+              
               @keyframes cursor-blink {
                 0%, 50% { opacity: 1; }
                 51%, 100% { opacity: 0; }
@@ -1184,12 +1128,9 @@ const Explanation: React.FC<ExplanationProps> = () => {
       }}>
         <div style={{ fontSize: '12px', fontWeight: '500', color: '#e5e7eb', textAlign: 'center' }}>
           {showSettingsPage ? 'Settings & Debug' : 
-           showNotebook ? 'Codebook' : 
-           'Copy text in any app and press Cmd+Shift+T'}
+           showNotebook ? 'Notebook' : 
+           'Highlight text in any app and press Cmd+Shift+T ✨'}
         </div>
-        
-        {/* License Status */}
-        <LicenseStatus />
         
         {/* Navigation buttons */}
         <div style={{ position: 'absolute', right: '20px', display: 'flex', gap: '8px' }}>
@@ -1492,24 +1433,13 @@ const Explanation: React.FC<ExplanationProps> = () => {
                     <div className="loading">
                       <div className="spinner"></div>
                       <div>Waiting for code...</div>
+                      <div style={{ fontSize: '11px', marginTop: '8px', color: '#6b7280' }}>
+                        Highlight text in any app and press Cmd+Shift+T
+                      </div>
                     </div>
                   )}
                 </div>
-                
-                                  {/* LetterGlitch Component Below Code Container - Only show when waiting for code */}
-                  {!data.code && (
-                    <div style={{ marginTop: '20px', height: '400px' }}>
-                      <LetterGlitch
-                        glitchSpeed={50}
-                        centerVignette={true}
-                        outerVignette={false}
-                        smooth={true}
-                      />
-                    </div>
-                  )}
               </div>
-              
-
               
               {/* AI Explanation Section - Flows naturally on the page */}
               <div id="explanation-content" style={{
@@ -1518,85 +1448,6 @@ const Explanation: React.FC<ExplanationProps> = () => {
               }}>
                 {renderContent()}
               </div>
-              
-              {/* Markdown Styles */}
-              <style>{`
-                #explanation-content h1 {
-                  color: #f9fafb;
-                  font-size: 24px;
-                  font-weight: bold;
-                  margin: 20px 0 16px 0;
-                  padding-bottom: 8px;
-                  border-bottom: 2px solid #374151;
-                }
-                
-                #explanation-content h2 {
-                  color: #f3f4f6;
-                  font-size: 20px;
-                  font-weight: 600;
-                  margin: 18px 0 14px 0;
-                  padding-bottom: 6px;
-                  border-bottom: 1px solid #4b5563;
-                }
-                
-                #explanation-content h3 {
-                  color: #e5e7eb;
-                  font-size: 18px;
-                  font-weight: 600;
-                  margin: 16px 0 12px 0;
-                }
-                
-                #explanation-content ul, #explanation-content ol {
-                  margin: 12px 0;
-                  padding-left: 24px;
-                }
-                
-                #explanation-content li {
-                  margin: 6px 0;
-                  line-height: 1.5;
-                }
-                
-                #explanation-content pre {
-                  background: #1f2937;
-                  border: 1px solid #374151;
-                  border-radius: 6px;
-                  padding: 16px;
-                  margin: 16px 0;
-                  overflow-x: auto;
-                }
-                
-                #explanation-content pre code {
-                  background: transparent;
-                  padding: 0;
-                  border-radius: 0;
-                  color: #e5e7eb;
-                  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
-                }
-                
-                #explanation-content code {
-                  background: #374151;
-                  padding: 2px 6px;
-                  border-radius: 4px;
-                  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
-                  color: #10b981;
-                }
-                
-                #explanation-content strong {
-                  font-weight: bold;
-                  color: #fbbf24;
-                }
-                
-                #explanation-content em {
-                  font-style: italic;
-                  color: #a78bfa;
-                }
-                
-                #explanation-content br {
-                  margin: 8px 0;
-                }
-              `}</style>
-              
-
             </div>
           </div>
         </>

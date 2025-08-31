@@ -89,3 +89,4 @@ export const enableFreeMode = (): void => {
   LICENSING_CONFIG.restrictions.maxCodeLength = 999999;
   LICENSING_CONFIG.restrictions.advancedFeatures = true;
 };
+

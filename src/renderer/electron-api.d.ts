@@ -56,10 +56,6 @@ declare global {
       authAddPoints: (points: number) => Promise<{ success: boolean; error?: string }>;
       authUpdateProfile: (updates: any) => Promise<{ success: boolean; error?: string }>;
       
-      // License operations
-      getLicenseInfo: () => Promise<{ success: boolean; licenseInfo?: any; isFreeMode?: boolean; config?: any; error?: string }>;
-      startTrial: () => Promise<{ success: boolean; licenseInfo?: any; error?: string }>;
-      
       // Gamification operations
       gamificationGetAchievements: () => Promise<{ success: boolean; achievements?: any[]; error?: string }>;
       gamificationGetOutfitItems: () => Promise<{ success: boolean; items?: any[]; error?: string }>;

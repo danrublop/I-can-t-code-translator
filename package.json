@@ -1,6 +1,6 @@
 {
   "name": "i-cant-code",
-  "version": "1.0.5",
+  "version": "1.0.0",
   "description": "AI-powered code explanations using Mistral language model",
   "main": "dist/main/main.js",
   "scripts": {
@@ -46,7 +46,6 @@
     "electron": "^28.0.0",
     "electron-builder": "^24.0.0",
     "html-webpack-plugin": "^5.5.0",
-    "semver": "^7.7.2",
     "style-loader": "^3.3.0",
     "ts-loader": "^9.4.0",
     "typescript": "^5.0.0",
@@ -57,9 +56,9 @@
   },
   "dependencies": {
     "axios": "^1.6.0",
-    "keytar": "^7.9.0",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "keytar": "^7.9.0"
   },
   "build": {
     "appId": "com.icantcode.app",
@@ -93,7 +92,11 @@
           ]
         }
       ],
-      "icon": "build-resources/icon.icns"
+      "icon": "build-resources/icon.icns",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build-resources/entitlements.mac.plist",
+      "entitlementsInherit": "build-resources/entitlements.mac.plist"
     },
     "win": {
       "target": [

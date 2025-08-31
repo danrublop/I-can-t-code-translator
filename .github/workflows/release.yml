@@ -59,7 +59,7 @@ jobs:
           - macOS 10.15+ 
           - Ollama installed with Mistral model
           
-          **Need help?** Check our [installation guide](https://your-website.com/install)
+          **Need help?** Check our [installation guide](https://github.com/danrublop/I-can-t-code-translator#readme)
         draft: false
         prerelease: false
       env:

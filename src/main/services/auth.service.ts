@@ -1,4 +1,6 @@
-import { BrowserWindow } from 'electron';
+import { BrowserWindow, app } from 'electron';
+import { join } from 'path';
+import { writeFileSync, readFileSync, existsSync } from 'fs';
 
 export interface UserProfile {
   id: string;
@@ -28,6 +30,25 @@ export interface AuthState {
   refreshToken: string | null;
 }
 
+export interface PersistentAuthData {
+  authState: AuthState;
+  loginTimestamp: number;
+  appVersion: string;
+  websiteVersion: string;
+  expiresAt: number;
+}
+
+export interface VersionInfo {
+  appVersion: string;
+  websiteVersion: string;
+  hasUpdate: boolean;
+  updateAvailable?: {
+    version: string;
+    releaseNotes: string;
+    downloadUrl: string;
+  };
+}
+
 export class AuthService {
   private authState: AuthState = {
     isAuthenticated: false,
@@ -40,28 +61,101 @@ export class AuthService {
   private readonly AUTH_URL = 'http://localhost:3000/auth'; // Development auth website
   private readonly CLIENT_ID = 'your-client-id'; // Replace with your actual client ID
   private readonly REDIRECT_URI = 'http://localhost:3000/auth/callback';
+  private readonly AUTH_FILE_NAME = 'auth-session.json';
+  private readonly SESSION_DURATION_DAYS = 30;
+  private readonly VERSION_CHECK_URL = 'https://api.icantcode.app/version'; // Your website version endpoint
+  private authFilePath: string;
+  private currentAppVersion: string;
+  private currentWebsiteVersion: string = '';
+  private wasForceLoggedOut: boolean = false; // Track if user was logged out due to version change
 
   constructor() {
+    // Set up persistent storage path
+    const userDataPath = app.getPath('userData');
+    this.authFilePath = join(userDataPath, this.AUTH_FILE_NAME);
+    
+    // Get current app version from package.json
+    this.currentAppVersion = app.getVersion();
+    
     this.loadStoredAuth();
   }
 
   private loadStoredAuth(): void {
-    // In production, you'd want to use secure storage like keytar
-    // For now, we'll use a simple approach
     try {
-      // localStorage is not available in main process, so we'll start fresh
-      console.log('Starting with fresh auth state in main process');
+      if (!existsSync(this.authFilePath)) {
+        console.log('No persistent auth session found, starting fresh');
+        return;
+      }
+
+      const authData = JSON.parse(readFileSync(this.authFilePath, 'utf8')) as PersistentAuthData;
+      const now = Date.now();
+
+      // Check if session has expired
+      if (now > authData.expiresAt) {
+        console.log('Persistent auth session expired, requiring new login');
+        this.clearStoredAuth();
+        return;
+      }
+
+      // Check if app version has changed (force re-auth on updates)
+      if (authData.appVersion !== this.currentAppVersion) {
+        console.log(`App version changed from ${authData.appVersion} to ${this.currentAppVersion}, requiring new login`);
+        this.clearStoredAuth();
+        return;
+      }
+
+      // Check website version in background (don't block auth loading)
+      this.checkWebsiteVersionUpdate(authData.websiteVersion || '1.0.0');
+
+      // Session is valid, restore auth state
+      this.authState = authData.authState;
+      
+      const daysRemaining = Math.ceil((authData.expiresAt - now) / (1000 * 60 * 60 * 24));
+      console.log(`Restored persistent auth session, expires in ${daysRemaining} days`);
+      
     } catch (error) {
       console.error('Failed to load stored auth:', error);
+      this.clearStoredAuth();
     }
   }
 
   private saveAuthState(): void {
     try {
-      // localStorage is not available in main process, so we'll just log
-      console.log('Auth state would be saved in production');
+      if (!this.authState.isAuthenticated) {
+        // Don't save unauthenticated state
+        return;
+      }
+
+      const now = Date.now();
+      const expiresAt = now + (this.SESSION_DURATION_DAYS * 24 * 60 * 60 * 1000); // 30 days from now
+
+      const persistentData: PersistentAuthData = {
+        authState: this.authState,
+        loginTimestamp: now,
+        appVersion: this.currentAppVersion,
+        websiteVersion: this.currentWebsiteVersion || '1.0.0',
+        expiresAt: expiresAt
+      };
+
+      writeFileSync(this.authFilePath, JSON.stringify(persistentData, null, 2), 'utf8');
+      
+      const expiryDate = new Date(expiresAt).toLocaleDateString();
+      console.log(`Persistent auth session saved, expires on ${expiryDate}`);
+      
     } catch (error) {
       console.error('Failed to save auth state:', error);
+    }
+  }
+
+  private clearStoredAuth(): void {
+    try {
+      if (existsSync(this.authFilePath)) {
+        const fs = require('fs');
+        fs.unlinkSync(this.authFilePath);
+        console.log('Cleared stored auth session');
+      }
+    } catch (error) {
+      console.error('Failed to clear stored auth:', error);
     }
   }
 
@@ -230,7 +324,10 @@ export class AuthService {
       refreshToken: null
     };
     
-    this.saveAuthState();
+    // Clear persistent storage
+    this.clearStoredAuth();
+    
+    console.log('User logged out and persistent session cleared');
     
     // In production, you'd also want to revoke tokens on your server
   }
@@ -334,6 +431,212 @@ export class AuthService {
     
     this.saveAuthState();
     return true;
+  }
+
+  public getSessionInfo(): { daysRemaining: number; expiresAt: Date; appVersion: string } | null {
+    try {
+      if (!existsSync(this.authFilePath)) {
+        return null;
+      }
+
+      const authData = JSON.parse(readFileSync(this.authFilePath, 'utf8')) as PersistentAuthData;
+      const now = Date.now();
+      const daysRemaining = Math.ceil((authData.expiresAt - now) / (1000 * 60 * 60 * 24));
+
+      return {
+        daysRemaining: Math.max(0, daysRemaining),
+        expiresAt: new Date(authData.expiresAt),
+        appVersion: authData.appVersion
+      };
+    } catch (error) {
+      console.error('Failed to get session info:', error);
+      return null;
+    }
+  }
+
+  public extendSession(): void {
+    // Extend the session by updating the login timestamp
+    if (this.authState.isAuthenticated) {
+      this.saveAuthState();
+      console.log('Session extended for another 30 days');
+    }
+  }
+
+  public wasUserForceLoggedOut(): boolean {
+    return this.wasForceLoggedOut;
+  }
+
+  public clearForceLogoutFlag(): void {
+    this.wasForceLoggedOut = false;
+  }
+
+  private async checkWebsiteVersionUpdate(storedWebsiteVersion: string): Promise<void> {
+    try {
+      console.log('Checking for website version updates...');
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+      
+      const response = await fetch(this.VERSION_CHECK_URL, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': `i-cant-code/${this.currentAppVersion}`
+        },
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        console.log('Website version check failed, continuing with cached version');
+        return;
+      }
+
+      const versionData = await response.json() as any;
+      this.currentWebsiteVersion = versionData.websiteVersion || '1.0.0';
+      
+      // Check if website version changed (force re-auth)
+      if (storedWebsiteVersion !== this.currentWebsiteVersion) {
+        console.log(`Website version changed from ${storedWebsiteVersion} to ${this.currentWebsiteVersion}, requiring new login`);
+        this.wasForceLoggedOut = true; // Mark that user was forced to log out due to version change
+        this.clearStoredAuth();
+        
+        // Reset auth state to force re-login
+        this.authState = {
+          isAuthenticated: false,
+          user: null,
+          accessToken: null,
+          refreshToken: null
+        };
+        return;
+      }
+
+      console.log(`Website version check passed: ${this.currentWebsiteVersion}`);
+      
+    } catch (error) {
+      console.error('Website version check failed:', error);
+      // Don't force logout on network errors, just continue
+    }
+  }
+
+  public async checkForUpdates(): Promise<VersionInfo> {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      
+      const response = await fetch(this.VERSION_CHECK_URL, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': `i-cant-code/${this.currentAppVersion}`
+        },
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(`Version check failed: ${response.status}`);
+      }
+
+      const versionData = await response.json() as any;
+      const latestAppVersion = versionData.appVersion || this.currentAppVersion;
+      const latestWebsiteVersion = versionData.websiteVersion || '1.0.0';
+      
+      const hasUpdate = this.compareVersions(latestAppVersion, this.currentAppVersion) > 0;
+      
+      return {
+        appVersion: this.currentAppVersion,
+        websiteVersion: this.currentWebsiteVersion || latestWebsiteVersion,
+        hasUpdate,
+        updateAvailable: hasUpdate ? {
+          version: latestAppVersion,
+          releaseNotes: versionData.releaseNotes || 'Bug fixes and improvements',
+          downloadUrl: versionData.downloadUrl || 'https://icantcode.app/download'
+        } : undefined
+      };
+      
+    } catch (error) {
+      console.error('Failed to check for updates:', error);
+      return {
+        appVersion: this.currentAppVersion,
+        websiteVersion: this.currentWebsiteVersion || '1.0.0',
+        hasUpdate: false
+      };
+    }
+  }
+
+  private compareVersions(version1: string, version2: string): number {
+    const v1parts = version1.split('.').map(Number);
+    const v2parts = version2.split('.').map(Number);
+    
+    const maxLength = Math.max(v1parts.length, v2parts.length);
+    
+    for (let i = 0; i < maxLength; i++) {
+      const v1part = v1parts[i] || 0;
+      const v2part = v2parts[i] || 0;
+      
+      if (v1part > v2part) return 1;
+      if (v1part < v2part) return -1;
+    }
+    
+    return 0;
+  }
+
+  public async forceVersionCheck(): Promise<boolean> {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      
+      const response = await fetch(this.VERSION_CHECK_URL, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': `i-cant-code/${this.currentAppVersion}`
+        },
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        return false;
+      }
+
+      const versionData = await response.json() as any;
+      const latestWebsiteVersion = versionData.websiteVersion || '1.0.0';
+      
+      // Update current website version
+      this.currentWebsiteVersion = latestWebsiteVersion;
+      
+      // Check if we need to force re-auth
+      if (existsSync(this.authFilePath)) {
+        const authData = JSON.parse(readFileSync(this.authFilePath, 'utf8')) as PersistentAuthData;
+        const storedWebsiteVersion = authData.websiteVersion || '1.0.0';
+        
+        if (storedWebsiteVersion !== latestWebsiteVersion) {
+          console.log(`Website version mismatch detected: stored=${storedWebsiteVersion}, latest=${latestWebsiteVersion}`);
+          this.wasForceLoggedOut = true; // Mark that user was forced to log out due to version change
+          this.clearStoredAuth();
+          
+          // Reset auth state to force re-login
+          this.authState = {
+            isAuthenticated: false,
+            user: null,
+            accessToken: null,
+            refreshToken: null
+          };
+          return true; // Indicates re-auth is required
+        }
+      }
+      
+      return false; // No re-auth required
+      
+    } catch (error) {
+      console.error('Force version check failed:', error);
+      return false;
+    }
   }
 }
 

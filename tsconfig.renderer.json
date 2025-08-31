@@ -19,7 +19,8 @@
   },
   "include": [
     "src/renderer/**/*",
-    "src/renderer/renderer-types.d.ts"
+    "src/renderer/renderer-types.d.ts",
+    "src/renderer/types/electron.d.ts"
   ],
   "exclude": [
     "node_modules",

@@ -1,146 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
-
-// Expose protected methods that allow the renderer process to use
-// the ipcRenderer without exposing the entire object
-contextBridge.exposeInMainWorld('electronAPI', {
-  // Context file operations
-  addContextFile: (filePath: string) => ipcRenderer.invoke('add-context-file', filePath),
-  
-  // Translation operations
-  translateCode: (code: string, detailLevel: string) => 
-    ipcRenderer.invoke('translate-code', code, detailLevel),
-  
-  // Clipboard operations
-  getClipboardLineCount: () => ipcRenderer.invoke('get-clipboard-line-count'),
-  
-  // Event listeners
-  onExplanationData: (callback: (data: any) => void) => {
-    ipcRenderer.on('explanation-data', (_event, data) => callback(data));
-  },
-  
-  onClipboardUpdate: (callback: (data: { lineCount: number; charCount: number; hasContent: boolean }) => void) => {
-    ipcRenderer.on('clipboard-update', (_event, data) => callback(data));
-  },
-  
-  onOpenSettingsPage: (callback: () => void) => {
-    ipcRenderer.on('open-settings-page', () => callback());
-  },
-  
-  onOpenNotebookInExplanation: (callback: () => void) => {
-    ipcRenderer.on('open-notebook-in-explanation', () => callback());
-  },
-  
-  // Settings page control
-  openSettingsPage: () => {
-    // Send IPC message to main process to open settings page
-    ipcRenderer.send('open-settings-page');
-  },
-  
-  // Notebook operations
-  openNotebookInExplanation: () => {
-    ipcRenderer.send('open-notebook-in-explanation');
-  },
-  
-  saveExplanation: (data: {
-    code: string;
-    language: string;
-    explanation: string;
-    title?: string;
-    tags?: string[];
-  }) => ipcRenderer.invoke('save-explanation', data),
-  
-  getAllExplanations: () => ipcRenderer.invoke('get-all-explanations'),
-  
-  searchExplanations: (query: string) => ipcRenderer.invoke('search-explanations', query),
-  
-  deleteExplanation: (id: string) => ipcRenderer.invoke('delete-explanation', id),
-  
-  // License management
-  getLicenseInfo: () => ipcRenderer.invoke('get-license-info'),
-  startTrial: () => ipcRenderer.invoke('start-trial'),
-  
-  getAllTags: () => ipcRenderer.invoke('get-all-tags'),
-  
-  getAllLanguages: () => ipcRenderer.invoke('get-all-languages'),
-  
-  exportExplanations: (format: 'json' | 'markdown') => ipcRenderer.invoke('export-explanations', format),
-  
-  // Remove event listeners
-  removeExplanationDataListener: () => {
-    ipcRenderer.removeAllListeners('explanation-data');
-  },
-  
-  removeClipboardUpdateListener: () => {
-    ipcRenderer.removeAllListeners('clipboard-update');
-  },
-  
-  removeOpenSettingsPageListener: () => {
-    ipcRenderer.removeAllListeners('open-settings-page');
-  },
-
-  // Authentication state change listener
-  onAuthStateChanged: (callback: (data: { isAuthenticated: boolean; user?: any }) => void) => {
-    ipcRenderer.on('auth-state-changed', (_, data) => callback(data));
-  },
-  
-  removeAuthStateChangedListener: () => {
-    ipcRenderer.removeAllListeners('auth-state-changed');
-  },
-
-  // Authentication status listener (for initial status)
-  onAuthStatus: (callback: (data: { isAuthenticated: boolean; user?: any }) => void) => {
-    ipcRenderer.on('auth-status', (_, data) => callback(data));
-  },
-  
-  removeAuthStatusListener: () => {
-    ipcRenderer.removeAllListeners('auth-status');
-  },
-
-  // Window control operations
-  windowClose: () => ipcRenderer.invoke('window-close'),
-  windowMinimize: () => ipcRenderer.invoke('window-minimize'),
-  windowMaximize: () => ipcRenderer.invoke('window-maximize'),
-
-  // Authentication operations
-  authLogin: () => ipcRenderer.invoke('auth-login'),
-  authBypassLogin: () => ipcRenderer.invoke('auth-bypass-login'),
-  authLogout: () => ipcRenderer.invoke('auth-logout'),
-  authGetUser: () => ipcRenderer.invoke('auth-get-user'),
-  authIsAuthenticated: () => ipcRenderer.invoke('auth-is-authenticated'),
-  authRefreshState: () => ipcRenderer.invoke('auth-refresh-state'),
-  authAddPoints: (points: number) => ipcRenderer.invoke('auth-add-points', points),
-  authUpdateProfile: (updates: any) => ipcRenderer.invoke('auth-update-profile', updates),
-
-  // Gamification operations
-  gamificationGetAchievements: () => ipcRenderer.invoke('gamification-get-achievements'),
-  gamificationGetOutfitItems: () => ipcRenderer.invoke('gamification-get-outfit-items'),
-  gamificationPurchaseItem: (itemId: string, userPoints: number) => 
-    ipcRenderer.invoke('gamification-purchase-item', itemId, userPoints),
-
-  // External operations
-  openExternal: (url: string) => ipcRenderer.invoke('open-external', url),
-  
-  // Website authentication operations
-  openAuthWebsite: () => ipcRenderer.invoke('open-auth-website'),
-  closeLoginWindow: () => ipcRenderer.invoke('close-login-window'),
-  
-  // Website-specific operations (for website authentication window)
-  sendAuthSuccess: (userData: any) => ipcRenderer.invoke('auth-success', userData),
-  
-  // Ollama operations
-  getOllamaStatus: () => ipcRenderer.invoke('get-ollama-status'),
-  startOllama: () => ipcRenderer.invoke('start-ollama'),
-  
-  // Session management
-  getSessionInfo: () => ipcRenderer.invoke('get-session-info'),
-  extendSession: () => ipcRenderer.invoke('extend-session'),
-  
-  // Version checking
-  checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
-  forceVersionCheck: () => ipcRenderer.invoke('force-version-check')
-});
-
-// Type definitions for TypeScript
+// Extend the global Window interface to include electronAPI
 declare global {
   interface Window {
     electronAPI: {
@@ -159,7 +17,7 @@ declare global {
         explanation: string;
         title?: string;
         tags?: string[];
-      }) => Promise<{ success: boolean; explanation?: any; error?: string }>;
+      }) => Promise<{ success: boolean; explanation?: any; error?: string; isDuplicate?: boolean }>;
       getAllExplanations: () => Promise<{ success: boolean; explanations?: any[]; error?: string }>;
       searchExplanations: (query: string) => Promise<{ success: boolean; explanations?: any[]; error?: string }>;
       deleteExplanation: (id: string) => Promise<{ success: boolean; error?: string }>;
@@ -273,3 +131,31 @@ declare global {
     };
   }
 }
+
+// Declare module for PNG imports
+declare module '*.png' {
+  const value: string;
+  export default value;
+}
+
+declare module '*.jpg' {
+  const value: string;
+  export default value;
+}
+
+declare module '*.jpeg' {
+  const value: string;
+  export default value;
+}
+
+declare module '*.gif' {
+  const value: string;
+  export default value;
+}
+
+declare module '*.svg' {
+  const value: string;
+  export default value;
+}
+
+export {};

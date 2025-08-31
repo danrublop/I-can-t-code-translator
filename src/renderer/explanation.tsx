@@ -1,25 +1,75 @@
+/// <reference path="./types/electron.d.ts" />
 import React, { useState, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom/client';
 import { UserProfile } from '../main/services/auth.service';
+import loadingManImage from './loadingman.png';
 
 // Function to parse markdown-style formatting from Mistral
 const parseMarkdown = (text: string): string => {
   if (!text) return '';
   
-  // Convert **text** to <strong>text</strong> for bold
-  let parsed = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+  let parsed = text;
   
-  // Convert *text* to <em>text</em> for italic (if needed)
-  parsed = parsed.replace(/\*(.*?)\*/g, '<em>$1</em>');
+  // Convert headings (must be done first, line by line)
+  parsed = parsed.split('\n').map(line => {
+    // Handle different heading levels
+    if (line.startsWith('### ')) {
+      return `<h3 style="color: #f9fafb; font-size: 18px; font-weight: 600; margin: 16px 0 8px 0;">${line.substring(4)}</h3>`;
+    } else if (line.startsWith('## ')) {
+      return `<h2 style="color: #f9fafb; font-size: 22px; font-weight: 700; margin: 20px 0 12px 0;">${line.substring(3)}</h2>`;
+    } else if (line.startsWith('# ')) {
+      return `<h1 style="color: #f9fafb; font-size: 26px; font-weight: 800; margin: 24px 0 16px 0;">${line.substring(2)}</h1>`;
+    }
+    return line;
+  }).join('\n');
+  
+  // Convert code blocks (```language ... ```)
+  parsed = parsed.replace(/```(\w+)?\n([\s\S]*?)```/g, 
+    '<pre style="background: #1f2937; padding: 12px; border-radius: 6px; margin: 12px 0; overflow-x: auto;"><code style="color: #e5e7eb; font-family: \'SF Mono\', Monaco, Consolas, monospace;">$2</code></pre>'
+  );
+  
+  // Convert **text** to <strong>text</strong> for bold
+  parsed = parsed.replace(/\*\*(.*?)\*\*/g, '<strong style="color: #f9fafb; font-weight: 600;">$1</strong>');
+  
+  // Convert *text* to <em>text</em> for italic (avoid conflicts with bold)
+  // First handle the bold text, then handle single asterisks that aren't part of bold
+  parsed = parsed.replace(/\*([^*]+?)\*/g, (match, p1) => {
+    // Skip if this is part of bold formatting (surrounded by **)
+    return `<em style="color: #d1d5db; font-style: italic;">${p1}</em>`;
+  });
   
   // Convert `text` to <code>text</code> for inline code
-  parsed = parsed.replace(/`(.*?)`/g, '<code>$1</code>');
+  parsed = parsed.replace(/`([^`]+?)`/g, '<code style="background: #374151; color: #fbbf24; padding: 2px 6px; border-radius: 3px; font-family: \'SF Mono\', Monaco, Consolas, monospace;">$1</code>');
+  
+  // Convert numbered lists (1. item)
+  parsed = parsed.replace(/^(\d+)\.\s+(.+)$/gm, 
+    '<div style="margin: 4px 0; padding-left: 16px;"><span style="color: #60a5fa; font-weight: 600;">$1.</span> $2</div>'
+  );
+  
+  // Convert bullet points (- item or * item)
+  parsed = parsed.replace(/^[-*]\s+(.+)$/gm, 
+    '<div style="margin: 4px 0; padding-left: 16px;"><span style="color: #34d399;">•</span> $1</div>'
+  );
+  
+  // Convert line breaks to proper HTML
+  parsed = parsed.replace(/\n\n/g, '</p><p style="margin: 12px 0; line-height: 1.6;">');
+  parsed = parsed.replace(/\n/g, '<br>');
+  
+  // Wrap in paragraph tags if not already wrapped in block elements
+  if (!parsed.includes('<h1>') && !parsed.includes('<h2>') && !parsed.includes('<h3>') && !parsed.includes('<pre>')) {
+    parsed = `<p style="margin: 12px 0; line-height: 1.6;">${parsed}</p>`;
+  } else {
+    // Ensure content starts with proper paragraph if it doesn't start with a heading
+    if (!parsed.match(/^<[h123]|^<pre/)) {
+      parsed = `<p style="margin: 12px 0; line-height: 1.6;">${parsed}</p>`;
+    }
+  }
   
   return parsed;
 };
 
 // Notebook View Component
-const NotebookView: React.FC = () => {
+const NotebookView: React.FC<{ refreshTrigger?: number }> = ({ refreshTrigger }) => {
   const [explanations, setExplanations] = useState<any[]>([]);
   const [filteredExplanations, setFilteredExplanations] = useState<any[]>([]);
   const [selectedExplanation, setSelectedExplanation] = useState<any>(null);
@@ -29,6 +79,13 @@ const NotebookView: React.FC = () => {
   useEffect(() => {
     loadExplanations();
   }, []);
+
+  // Refresh when trigger changes
+  useEffect(() => {
+    if (refreshTrigger) {
+      loadExplanations();
+    }
+  }, [refreshTrigger]);
 
   const loadExplanations = async () => {
     try {
@@ -344,6 +401,41 @@ const Explanation: React.FC<ExplanationProps> = () => {
   const [showNotebook, setShowNotebook] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState<UserProfile | null>(null);
+  const [notebookRefreshTrigger, setNotebookRefreshTrigger] = useState(0);
+  const [ollamaStatus, setOllamaStatus] = useState<{
+    connected: boolean;
+    status: string;
+    isStarting: boolean;
+    lastChecked: Date | null;
+    error?: string;
+  }>({
+    connected: false,
+    status: 'Checking...',
+    isStarting: false,
+    lastChecked: null
+  });
+  
+  // Update checking state
+  const [updateInfo, setUpdateInfo] = useState<{
+    appVersion: string;
+    websiteVersion: string;
+    hasUpdate: boolean;
+    isChecking: boolean;
+    lastChecked: Date | null;
+    updateAvailable?: {
+      version: string;
+      releaseNotes: string;
+      downloadUrl: string;
+    };
+    error?: string;
+  }>({
+    appVersion: '1.0.0',
+    websiteVersion: '1.0.0',
+    hasUpdate: false,
+    isChecking: false,
+    lastChecked: null
+  });
+  
   const [showLogin, setShowLogin] = useState(false);
   
   const resizeHandleRef = useRef<HTMLDivElement>(null);
@@ -354,6 +446,147 @@ const Explanation: React.FC<ExplanationProps> = () => {
   
   // State to track if auto-scroll should be enabled
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
+
+  // Ollama connection checking
+  const checkOllamaConnection = async () => {
+    try {
+      const result = await (window.electronAPI as any).getOllamaStatus();
+      if (result.success && result.status) {
+        setOllamaStatus({
+          connected: result.status.isRunning,
+          status: result.status.isStarting ? 'Starting...' : 
+                  result.status.isRunning ? 'Connected' : 
+                  result.status.error ? `Error: ${result.status.error}` : 'Not Running',
+          isStarting: result.status.isStarting,
+          lastChecked: new Date(),
+          error: result.status.error
+        });
+      } else {
+        setOllamaStatus(prev => ({
+          ...prev,
+          connected: false,
+          status: 'Status Check Failed',
+          isStarting: false,
+          lastChecked: new Date(),
+          error: result.error
+        }));
+      }
+    } catch (error) {
+      setOllamaStatus(prev => ({
+        ...prev,
+        connected: false,
+        status: 'Status Check Failed',
+        isStarting: false,
+        lastChecked: new Date(),
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }));
+    }
+  };
+
+  // Manual Ollama start
+  const startOllama = async () => {
+    try {
+      setOllamaStatus(prev => ({ ...prev, isStarting: true, status: 'Starting...' }));
+      
+      const result = await (window.electronAPI as any).startOllama();
+      if (result.success && result.status) {
+        setOllamaStatus({
+          connected: result.status.isRunning,
+          status: result.status.isStarting ? 'Starting...' : 
+                  result.status.isRunning ? 'Connected' : 
+                  result.status.error ? `Error: ${result.status.error}` : 'Not Running',
+          isStarting: result.status.isStarting,
+          lastChecked: new Date(),
+          error: result.status.error
+        });
+      } else {
+        setOllamaStatus(prev => ({
+          ...prev,
+          connected: false,
+          status: 'Start Failed',
+          isStarting: false,
+          lastChecked: new Date(),
+          error: result.error
+        }));
+      }
+    } catch (error) {
+      setOllamaStatus(prev => ({
+        ...prev,
+        connected: false,
+        status: 'Start Failed',
+        isStarting: false,
+        lastChecked: new Date(),
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }));
+    }
+  };
+
+  // Check for updates
+  const checkForUpdates = async () => {
+    try {
+      setUpdateInfo(prev => ({ ...prev, isChecking: true, error: undefined }));
+      
+      const result = await (window.electronAPI as any).checkForUpdates();
+      if (result.success && result.versionInfo) {
+        setUpdateInfo({
+          appVersion: result.versionInfo.appVersion,
+          websiteVersion: result.versionInfo.websiteVersion,
+          hasUpdate: result.versionInfo.hasUpdate,
+          isChecking: false,
+          lastChecked: new Date(),
+          updateAvailable: result.versionInfo.updateAvailable
+        });
+      } else {
+        setUpdateInfo(prev => ({
+          ...prev,
+          isChecking: false,
+          lastChecked: new Date(),
+          error: result.error || 'Failed to check for updates'
+        }));
+      }
+    } catch (error) {
+      setUpdateInfo(prev => ({
+        ...prev,
+        isChecking: false,
+        lastChecked: new Date(),
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }));
+    }
+  };
+
+  // Force version check (manual refresh)
+  const forceVersionCheck = async () => {
+    try {
+      setUpdateInfo(prev => ({ ...prev, isChecking: true, error: undefined }));
+      
+      const result = await (window.electronAPI as any).forceVersionCheck();
+      if (result.success) {
+        if (result.requiresReauth) {
+          // Website version changed, user needs to re-login
+          setIsAuthenticated(false);
+          setUser(null);
+          setShowLogin(true);
+        } else {
+          // No version change, just check for updates normally
+          await checkForUpdates();
+        }
+      } else {
+        setUpdateInfo(prev => ({
+          ...prev,
+          isChecking: false,
+          lastChecked: new Date(),
+          error: result.error || 'Failed to check version'
+        }));
+      }
+    } catch (error) {
+      setUpdateInfo(prev => ({
+        ...prev,
+        isChecking: false,
+        lastChecked: new Date(),
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }));
+    }
+  };
   
   // Track user scroll behavior
   const handleScroll = () => {
@@ -526,6 +759,23 @@ const Explanation: React.FC<ExplanationProps> = () => {
     }
   }, [data.status, autoScrollEnabled]);
 
+  // Check Ollama connection and updates when settings page is opened
+  useEffect(() => {
+    if (showSettingsPage) {
+      checkOllamaConnection();
+      checkForUpdates(); // Also check for updates when settings opens
+      // Set up periodic checking while settings page is open
+      const interval = setInterval(() => {
+        checkOllamaConnection();
+        // Check for updates every 30 seconds (less frequent than Ollama)
+        if (Math.floor(Date.now() / 1000) % 30 === 0) {
+          checkForUpdates();
+        }
+      }, 10000); // Check every 10 seconds
+      return () => clearInterval(interval);
+    }
+  }, [showSettingsPage]);
+
   const setupWindowControls = () => {
     const closeBtn = document.getElementById('close-btn');
     const minimizeBtn = document.getElementById('minimize-btn');
@@ -622,8 +872,7 @@ const Explanation: React.FC<ExplanationProps> = () => {
           
           setData(newData);
           
-          // Auto-save the new explanation to notebook
-          autoSaveToNotebook(newData);
+          // Auto-save is already handled by the IPC listener, no need to duplicate here
         } else {
           setData(prev => ({
             ...prev,
@@ -646,6 +895,9 @@ const Explanation: React.FC<ExplanationProps> = () => {
     setUser(null);
   };
 
+  // Track saved explanations to prevent duplicates
+  const [savedExplanationIds, setSavedExplanationIds] = useState<Set<string>>(new Set());
+
   // Auto-save completed explanations to notebook
   const autoSaveToNotebook = async (explanationData: ExplanationData) => {
     console.log('autoSaveToNotebook called with:', explanationData);
@@ -655,6 +907,14 @@ const Explanation: React.FC<ExplanationProps> = () => {
       console.log('explanation:', !!explanationData.explanation);
       console.log('code:', !!explanationData.code);
       console.log('language:', !!explanationData.language);
+      return;
+    }
+
+    // Create a unique identifier for this explanation to prevent duplicates
+    const explanationHash = btoa(explanationData.code + explanationData.explanation).substring(0, 20);
+    
+    if (savedExplanationIds.has(explanationHash)) {
+      console.log('Explanation already saved, skipping duplicate save');
       return;
     }
 
@@ -675,7 +935,15 @@ const Explanation: React.FC<ExplanationProps> = () => {
         console.log('Save result:', result);
         
         if (result.success) {
-          console.log('Auto-saved explanation to notebook:', result.explanation);
+          if ((result as any).isDuplicate) {
+            console.log('Explanation was already saved, skipping duplicate');
+          } else {
+            console.log('Auto-saved explanation to notebook:', result.explanation);
+            // Trigger notebook refresh only for new saves
+            setNotebookRefreshTrigger(prev => prev + 1);
+          }
+          // Mark this explanation as saved (whether new or duplicate)
+          setSavedExplanationIds(prev => new Set(prev).add(explanationHash));
         } else {
           console.error('Failed to auto-save explanation:', result.error);
         }
@@ -869,6 +1137,23 @@ const Explanation: React.FC<ExplanationProps> = () => {
               }}>
                 
               </h1>
+              
+              {/* Loading Man Image */}
+              <div style={{
+                display: 'flex',
+                justifyContent: 'center',
+                marginBottom: '20px'
+              }}>
+                <img 
+                  src={loadingManImage} 
+                  alt="Loading..." 
+                  style={{
+                    width: '120px',
+                    height: 'auto',
+                    opacity: 0.8
+                  }}
+                />
+              </div>
               
               {/* Progress Bar */}
               {data.status !== 'idle' && typeof data.progress === 'number' ? (
@@ -1233,10 +1518,235 @@ const Explanation: React.FC<ExplanationProps> = () => {
             }}>
               <h2 style={{ fontSize: '22px', marginBottom: '16px', color: '#f9fafb' }}>System Status</h2>
               <div style={{ fontSize: '14px', lineHeight: '1.6' }}>
+                <div style={{ color: '#9ca3af' }}>
+                  Ollama Connection:
+                  <span style={{ 
+                    color: ollamaStatus.connected ? '#10b981' : '#ef4444', 
+                    marginLeft: '8px',
+                    fontWeight: '500'
+                  }}>
+                    {ollamaStatus.status}
+                  </span>
+                  {ollamaStatus.lastChecked && (
+                    <span style={{ color: '#6b7280', marginLeft: '8px', fontSize: '12px' }}>
+                      (checked {ollamaStatus.lastChecked.toLocaleTimeString()})
+                    </span>
+                  )}
+                </div>
                 <div style={{ color: '#9ca3af' }}>Electron API:<span style={{ color: '#10b981', marginLeft: '8px' }}>Available</span></div>
                 <div style={{ color: '#9ca3af' }}>Component State:<span style={{ color: '#10b981', marginLeft: '8px' }}>Active</span></div>
                 <div style={{ color: '#9ca3af' }}>Data Received:<span style={{ color: '#10b981', marginLeft: '8px' }}>Yes</span></div>
                 <div style={{ color: '#9ca3af' }}>Explanation Length:<span style={{ color: '#10b981', marginLeft: '8px' }}>{data.explanation ? data.explanation.length : 0} characters</span></div>
+              </div>
+              
+              {/* Ollama Status Actions */}
+              <div style={{ marginTop: '12px', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                <button
+                  onClick={checkOllamaConnection}
+                  disabled={ollamaStatus.isStarting}
+                  style={{
+                    background: ollamaStatus.isStarting ? '#374151' : '#000000',
+                    color: '#ffffff',
+                    border: '1px solid #374151',
+                    padding: '6px 12px',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    cursor: ollamaStatus.isStarting ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.2s',
+                    opacity: ollamaStatus.isStarting ? 0.6 : 1
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!ollamaStatus.isStarting) {
+                      e.currentTarget.style.background = '#374151';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!ollamaStatus.isStarting) {
+                      e.currentTarget.style.background = '#000000';
+                    }
+                  }}
+                >
+                  {ollamaStatus.isStarting ? 'Checking...' : 'Refresh Status'}
+                </button>
+                
+                {!ollamaStatus.connected && !ollamaStatus.isStarting && (
+                  <button
+                    onClick={startOllama}
+                    style={{
+                      background: '#059669',
+                      color: '#ffffff',
+                      border: '1px solid #10b981',
+                      padding: '6px 12px',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = '#047857';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = '#059669';
+                    }}
+                  >
+                    Start Ollama
+                  </button>
+                )}
+                
+                {!ollamaStatus.connected && !ollamaStatus.isStarting && (
+                  <div style={{ fontSize: '12px', color: '#f59e0b' }}>
+                    💡 Ollama will start automatically when the app opens, or click "Start Ollama" above
+                  </div>
+                )}
+                
+                {ollamaStatus.isStarting && (
+                  <div style={{ fontSize: '12px', color: '#3b82f6' }}>
+                    🔄 Starting Ollama... This may take a moment.
+                  </div>
+                )}
+                
+                {ollamaStatus.error && (
+                  <div style={{ fontSize: '12px', color: '#ef4444', maxWidth: '400px' }}>
+                    ❌ Error: {ollamaStatus.error}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Update Information */}
+            <div style={{
+              marginBottom: '24px'
+            }}>
+              <h2 style={{ fontSize: '22px', marginBottom: '16px', color: '#f9fafb' }}>App Updates</h2>
+              <div style={{
+                background: '#1f2937',
+                border: '1px solid #374151',
+                borderRadius: '8px',
+                padding: '16px'
+              }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '12px' }}>
+                  <div style={{ color: '#9ca3af' }}>App Version:<span style={{ color: '#10b981', marginLeft: '8px' }}>{updateInfo.appVersion}</span></div>
+                  <div style={{ color: '#9ca3af' }}>Website Version:<span style={{ color: '#10b981', marginLeft: '8px' }}>{updateInfo.websiteVersion}</span></div>
+                  <div style={{ color: '#9ca3af' }}>Update Available:<span style={{ color: updateInfo.hasUpdate ? '#f59e0b' : '#10b981', marginLeft: '8px' }}>{updateInfo.hasUpdate ? 'Yes' : 'No'}</span></div>
+                  <div style={{ color: '#9ca3af' }}>Last Checked:<span style={{ color: '#10b981', marginLeft: '8px' }}>{updateInfo.lastChecked ? updateInfo.lastChecked.toLocaleTimeString() : 'Never'}</span></div>
+                </div>
+                
+                {/* Update Available Banner */}
+                {updateInfo.hasUpdate && updateInfo.updateAvailable && (
+                  <div style={{
+                    background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                    border: '1px solid #f59e0b',
+                    borderRadius: '8px',
+                    padding: '16px',
+                    marginBottom: '16px',
+                    color: '#ffffff'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                      <span style={{ fontSize: '20px' }}>🚀</span>
+                      <strong style={{ fontSize: '16px' }}>Update Available: v{updateInfo.updateAvailable.version}</strong>
+                    </div>
+                    <p style={{ margin: '8px 0', fontSize: '14px', lineHeight: '1.5' }}>
+                      {updateInfo.updateAvailable.releaseNotes}
+                    </p>
+                    <button
+                      onClick={() => {
+                        if (updateInfo.updateAvailable?.downloadUrl) {
+                          (window.electronAPI as any).openExternal(updateInfo.updateAvailable.downloadUrl);
+                        }
+                      }}
+                      style={{
+                        background: '#ffffff',
+                        color: '#d97706',
+                        border: 'none',
+                        padding: '8px 16px',
+                        borderRadius: '6px',
+                        fontSize: '14px',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = '#f3f4f6';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = '#ffffff';
+                      }}
+                    >
+                      Download Update
+                    </button>
+                  </div>
+                )}
+                
+                {/* Update Check Actions */}
+                <div style={{ marginTop: '12px', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <button
+                    onClick={checkForUpdates}
+                    disabled={updateInfo.isChecking}
+                    style={{
+                      background: updateInfo.isChecking ? '#374151' : '#000000',
+                      color: '#ffffff',
+                      border: '1px solid #374151',
+                      padding: '6px 12px',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      cursor: updateInfo.isChecking ? 'not-allowed' : 'pointer',
+                      transition: 'all 0.2s',
+                      opacity: updateInfo.isChecking ? 0.6 : 1
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!updateInfo.isChecking) {
+                        e.currentTarget.style.background = '#374151';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!updateInfo.isChecking) {
+                        e.currentTarget.style.background = '#000000';
+                      }
+                    }}
+                  >
+                    {updateInfo.isChecking ? 'Checking...' : 'Check for Updates'}
+                  </button>
+                  
+                  <button
+                    onClick={forceVersionCheck}
+                    disabled={updateInfo.isChecking}
+                    style={{
+                      background: updateInfo.isChecking ? '#374151' : '#059669',
+                      color: '#ffffff',
+                      border: '1px solid #10b981',
+                      padding: '6px 12px',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      cursor: updateInfo.isChecking ? 'not-allowed' : 'pointer',
+                      transition: 'all 0.2s',
+                      opacity: updateInfo.isChecking ? 0.6 : 1
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!updateInfo.isChecking) {
+                        e.currentTarget.style.background = '#047857';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!updateInfo.isChecking) {
+                        e.currentTarget.style.background = '#059669';
+                      }
+                    }}
+                  >
+                    Force Refresh
+                  </button>
+                </div>
+                
+                {updateInfo.isChecking && (
+                  <div style={{ fontSize: '12px', color: '#3b82f6', marginTop: '8px' }}>
+                    🔄 Checking for updates...
+                  </div>
+                )}
+                
+                {updateInfo.error && (
+                  <div style={{ fontSize: '12px', color: '#ef4444', maxWidth: '400px', marginTop: '8px' }}>
+                    ❌ Error: {updateInfo.error}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1366,7 +1876,7 @@ const Explanation: React.FC<ExplanationProps> = () => {
           </div>
         </div>
       ) : showNotebook ? (
-        <NotebookView />
+        <NotebookView refreshTrigger={notebookRefreshTrigger} />
       ) : (
         <>
           {/* Main Content */}

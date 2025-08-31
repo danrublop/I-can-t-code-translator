@@ -1,6 +1,7 @@
 import { app, BrowserWindow, globalShortcut, ipcMain, clipboard } from 'electron';
 import { join } from 'path';
 import { OllamaService } from './services/ollama.service';
+import { OllamaProcessService } from './services/ollama-process.service';
 import { CodeAnalysisService } from './services/code-analysis.service';
 import { analyticsService } from './services/analytics.service';
 import { authService } from './services/auth.service';
@@ -20,6 +21,7 @@ class MainProcess {
   private explanationWindow: BrowserWindow | null = null;
   private websiteAuthWindow: BrowserWindow | null = null;
   private ollamaService: OllamaService;
+  private ollamaProcessService: OllamaProcessService;
   private codeAnalysisService: CodeAnalysisService;
   private licenseService: LicenseService;
   // private explanationStorageService: ExplanationStorageService;
@@ -31,6 +33,7 @@ class MainProcess {
 
   constructor() {
     this.ollamaService = new OllamaService();
+    this.ollamaProcessService = new OllamaProcessService();
     this.codeAnalysisService = new CodeAnalysisService();
     this.licenseService = new LicenseService();
     // this.explanationStorageService = new ExplanationStorageService();
@@ -47,6 +50,9 @@ class MainProcess {
   async initialize(): Promise<void> {
     // Wait for Electron to be ready
     await app.whenReady();
+
+    // Start Ollama automatically
+    await this.startOllamaIfNeeded();
 
     // Load existing explanations from file
     await this.loadExplanationsFromFile();
@@ -541,6 +547,29 @@ class MainProcess {
 
         console.log('Saving explanation to notebook:', data);
         
+        // Check for duplicates before saving
+        if (!this.savedExplanations) {
+          this.savedExplanations = [];
+        }
+        
+        // Check for duplicates
+        const isDuplicate = this.savedExplanations.some(existing => 
+          existing.code === data.code && existing.explanation === data.explanation
+        );
+        
+        if (isDuplicate) {
+          console.log('Duplicate explanation detected, skipping save');
+          // Return the existing explanation
+          const existingExplanation = this.savedExplanations.find(existing => 
+            existing.code === data.code && existing.explanation === data.explanation
+          );
+          return { 
+            success: true, 
+            explanation: existingExplanation,
+            isDuplicate: true
+          };
+        }
+        
         // For now, we'll use a simple in-memory storage
         // In a real app, you'd save to a database or file
         const savedExplanation = {
@@ -549,10 +578,7 @@ class MainProcess {
           timestamp: data.timestamp || new Date().toISOString()
         };
 
-        // Store in memory and persist to file
-        if (!this.savedExplanations) {
-          this.savedExplanations = [];
-        }
+        // Store in memory
         this.savedExplanations.push(savedExplanation);
 
         // Save to file for persistence
@@ -738,6 +764,58 @@ class MainProcess {
         // Update the auth service with user data
         await authService.setUserAuthenticated(userData);
         
+        // Check for updates immediately after successful login
+        try {
+          const versionInfo = await authService.checkForUpdates();
+          const wasForceLoggedOut = authService.wasUserForceLoggedOut();
+          
+          // If update is available, show download prompt
+          if (versionInfo.hasUpdate && versionInfo.updateAvailable) {
+            console.log('Update detected after login:', versionInfo.updateAvailable);
+            
+            // Show update dialog with appropriate message
+            const { dialog } = require('electron');
+            const title = wasForceLoggedOut ? 'New Update Required! 🚀' : 'Update Available! 🚀';
+            const message = wasForceLoggedOut 
+              ? `A new version (v${versionInfo.updateAvailable.version}) has been released and requires your attention!`
+              : `A new version (v${versionInfo.updateAvailable.version}) is available!`;
+            const detail = wasForceLoggedOut
+              ? `We've updated the app with important improvements:\n\n${versionInfo.updateAvailable.releaseNotes}\n\nPlease download the latest version to continue using all features.`
+              : `${versionInfo.updateAvailable.releaseNotes}\n\nWould you like to download the update now?`;
+            
+            const result = await dialog.showMessageBox(null, {
+              type: 'info',
+              title,
+              message,
+              detail,
+              buttons: ['Download Update', 'Later'],
+              defaultId: 0,
+              cancelId: 1,
+              icon: undefined // You can add an icon path here if you have one
+            });
+            
+            if (result.response === 0) {
+              // User clicked "Download Update"
+              const { shell } = require('electron');
+              shell.openExternal(versionInfo.updateAvailable.downloadUrl);
+              console.log('Opening download URL:', versionInfo.updateAvailable.downloadUrl);
+            }
+            
+            // Clear the force logout flag after showing the update prompt
+            authService.clearForceLogoutFlag();
+          } else if (wasForceLoggedOut) {
+            // User was forced to log out but no app update available - just clear the flag
+            authService.clearForceLogoutFlag();
+          }
+        } catch (updateError) {
+          console.error('Failed to check for updates after login:', updateError);
+          // Don't fail the login process if update check fails
+          // Still clear the force logout flag
+          if (authService.wasUserForceLoggedOut()) {
+            authService.clearForceLogoutFlag();
+          }
+        }
+        
         // Notify the main window about authentication state change
         if (this.mainWindow && !this.mainWindow.isDestroyed()) {
           this.mainWindow.webContents.send('auth-state-changed', {
@@ -745,12 +823,6 @@ class MainProcess {
             user: authService.getUser()
           });
         }
-        
-        // Don't show notification - it creates a white popup window
-        // this.showNotification(
-        //   'Welcome! 🎉', 
-        //   'You are now logged in and can use all features of the application.'
-        // );
         
         return { success: true };
       } catch (error) {
@@ -811,6 +883,62 @@ class MainProcess {
           user 
         };
       } catch (error) {
+        return { 
+          success: false, 
+          error: error instanceof Error ? error.message : 'Unknown error' 
+        };
+      }
+    });
+
+    // Handle session info requests
+    ipcMain.handle('get-session-info', async () => {
+      try {
+        const sessionInfo = authService.getSessionInfo();
+        return { success: true, sessionInfo };
+      } catch (error) {
+        console.error('Error getting session info:', error);
+        return { 
+          success: false, 
+          error: error instanceof Error ? error.message : 'Unknown error' 
+        };
+      }
+    });
+
+    // Handle session extension
+    ipcMain.handle('extend-session', async () => {
+      try {
+        authService.extendSession();
+        return { success: true };
+      } catch (error) {
+        console.error('Error extending session:', error);
+        return { 
+          success: false, 
+          error: error instanceof Error ? error.message : 'Unknown error' 
+        };
+      }
+    });
+
+    // Handle version check requests
+    ipcMain.handle('check-for-updates', async () => {
+      try {
+        const versionInfo = await authService.checkForUpdates();
+        return { success: true, versionInfo };
+      } catch (error) {
+        console.error('Error checking for updates:', error);
+        return { 
+          success: false, 
+          error: error instanceof Error ? error.message : 'Unknown error' 
+        };
+      }
+    });
+
+    // Handle force version check (for manual refresh)
+    ipcMain.handle('force-version-check', async () => {
+      try {
+        const requiresReauth = await authService.forceVersionCheck();
+        return { success: true, requiresReauth };
+      } catch (error) {
+        console.error('Error in force version check:', error);
         return { 
           success: false, 
           error: error instanceof Error ? error.message : 'Unknown error' 
@@ -894,6 +1022,44 @@ class MainProcess {
         return { success: false, error: 'Failed to maximize window' };
       }
     });
+
+    // Handle Ollama status requests
+    ipcMain.handle('get-ollama-status', () => {
+      try {
+        const status = this.ollamaProcessService.getStatus();
+        return { success: true, status };
+      } catch (error) {
+        console.error('Error getting Ollama status:', error);
+        return { 
+          success: false, 
+          error: error instanceof Error ? error.message : 'Unknown error' 
+        };
+      }
+    });
+
+    // Handle manual Ollama start requests
+    ipcMain.handle('start-ollama', async () => {
+      try {
+        console.log('Manual Ollama start requested');
+        const started = await this.ollamaProcessService.startOllama();
+        
+        if (started) {
+          // Try to ensure model is available
+          await this.ollamaProcessService.ensureModelAvailable('mistral:latest');
+        }
+        
+        return { 
+          success: started, 
+          status: this.ollamaProcessService.getStatus() 
+        };
+      } catch (error) {
+        console.error('Error starting Ollama manually:', error);
+        return { 
+          success: false, 
+          error: error instanceof Error ? error.message : 'Unknown error' 
+        };
+      }
+    });
   }
 
   private startClipboardMonitoring(): void {
@@ -944,9 +1110,47 @@ class MainProcess {
 
     app.on('before-quit', () => {
       this.stopClipboardMonitoring();
+      // Stop Ollama if we started it
+      this.ollamaProcessService.stopOllama();
       // Save explanations before quitting
       this.saveExplanationsToFile();
     });
+  }
+
+  private async startOllamaIfNeeded(): Promise<void> {
+    try {
+      console.log('Checking if Ollama needs to be started...');
+      
+      // Check if Ollama is already running
+      const isRunning = await this.ollamaProcessService.checkIfRunning();
+      if (isRunning) {
+        console.log('Ollama is already running');
+        return;
+      }
+
+      // Start Ollama
+      console.log('Starting Ollama...');
+      const started = await this.ollamaProcessService.startOllama();
+      
+      if (started) {
+        console.log('Ollama started successfully');
+        
+        // Ensure the Mistral model is available
+        console.log('Ensuring Mistral model is available...');
+        const modelAvailable = await this.ollamaProcessService.ensureModelAvailable('mistral:latest');
+        
+        if (modelAvailable) {
+          console.log('Mistral model is ready');
+        } else {
+          console.warn('Mistral model could not be loaded, but Ollama is running');
+        }
+      } else {
+        console.warn('Failed to start Ollama automatically. User will need to start it manually.');
+      }
+    } catch (error) {
+      console.error('Error during Ollama startup:', error);
+      // Don't throw - allow the app to continue even if Ollama fails to start
+    }
   }
 
   private async loadExplanationsFromFile(): Promise<void> {

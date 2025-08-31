@@ -8,7 +8,6 @@ interface ToolbarState {
   status: 'ready' | 'processing' | 'error' | 'warning';
   statusText: string;
   contextFileCount: number;
-  isOllamaConnected: boolean;
   lineCount: number;
   charCount: number;
   hasContent: boolean;
@@ -21,7 +20,6 @@ const Toolbar: React.FC<ToolbarProps> = () => {
     status: 'ready',
     statusText: 'Ready',
     contextFileCount: 0,
-    isOllamaConnected: false,
     lineCount: 0,
     charCount: 0,
     hasContent: false,
@@ -30,11 +28,14 @@ const Toolbar: React.FC<ToolbarProps> = () => {
   });
 
   useEffect(() => {
-    // Check Ollama connection status
-    checkOllamaConnection();
+    // Set status to ready (no Ollama checking)
+    setState(prev => ({
+      ...prev,
+      status: 'ready',
+      statusText: 'Ready'
+    }));
     
-    // Set up periodic connection check
-    const interval = setInterval(checkOllamaConnection, 30000); // Check every 30 seconds
+    // No periodic connection check needed
     
     // Set up clipboard update listener
     if (window.electronAPI) {
@@ -73,7 +74,7 @@ const Toolbar: React.FC<ToolbarProps> = () => {
     }
     
     return () => {
-      clearInterval(interval);
+      // No interval to clear
       if (window.electronAPI) {
         window.electronAPI.removeClipboardUpdateListener();
         (window.electronAPI as any).removeAuthStatusListener();
@@ -82,38 +83,7 @@ const Toolbar: React.FC<ToolbarProps> = () => {
     };
   }, []);
 
-  const checkOllamaConnection = async () => {
-    try {
-      // Try to make a simple request to check if Ollama is running
-      const response = await fetch('http://127.0.0.1:11434/api/tags', {
-        method: 'GET',
-        signal: AbortSignal.timeout(5000) // 5 second timeout
-      });
-      
-      if (response.ok) {
-        setState(prev => ({
-          ...prev,
-          status: 'ready',
-          statusText: 'Ready',
-          isOllamaConnected: true
-        }));
-      } else {
-        setState(prev => ({
-          ...prev,
-          status: 'warning',
-          statusText: 'Ollama API Error',
-          isOllamaConnected: false
-        }));
-      }
-    } catch (error) {
-      setState(prev => ({
-        ...prev,
-        status: 'error',
-        statusText: 'Ollama Not Running',
-        isOllamaConnected: false
-      }));
-    }
-  };
+  // Removed checkOllamaConnection - always show "Ready" status
 
   const getStatusDotClass = (status: string) => {
     switch (status) {
@@ -150,20 +120,7 @@ const Toolbar: React.FC<ToolbarProps> = () => {
 
   const shortcuts = getShortcutKeys();
 
-  const handleLogout = async () => {
-    if (window.electronAPI) {
-      try {
-        const result = await window.electronAPI.authLogout();
-        if (result.success) {
-          console.log('Logout successful');
-        } else {
-          console.error('Logout failed:', result.error);
-        }
-      } catch (error) {
-        console.error('Error during logout:', error);
-      }
-    }
-  };
+
 
   return (
     <div className="toolbar-container">
@@ -287,56 +244,7 @@ const Toolbar: React.FC<ToolbarProps> = () => {
             </button>
           )}
 
-          {/* Login/User Button */}
-          {state.isAuthenticated ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <button 
-                className="user-button"
-                onClick={() => {
-                  console.log('User profile clicked');
-                  // TODO: Show user profile or logout options
-                }}
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  color: '#10b981',
-                  padding: '6px 12px',
-                  borderRadius: '20px',
-                  cursor: 'pointer',
-                  fontSize: '12px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  marginRight: '8px',
-                  fontWeight: '500'
-                }}
-                title={`Logged in as ${state.user?.name || state.user?.email || 'User'}`}
-              >
-                {state.user?.name ? `👤 ${state.user.name}` : '👤 User'}
-              </button>
-              
-              <button 
-                className="logout-button"
-                onClick={handleLogout}
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  color: '#ef4444',
-                  padding: '4px 8px',
-                  borderRadius: '12px',
-                  cursor: 'pointer',
-                  fontSize: '11px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontWeight: '500'
-                }}
-                title="Logout"
-              >
-                logout
-              </button>
-            </div>
-          ) : null}
+
           
           {/* Settings Button - Only show when authenticated */}
           {state.isAuthenticated && (

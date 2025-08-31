@@ -1,6 +1,6 @@
 cask "i-cant-code" do
-  version "1.0.0"
-  sha256 :no_check # Will be calculated when submitting
+  version "1.0.1"
+  sha256 "52654ff019d60dca62817934e202f341dcc8d88589dcf528a43ea195ee6e0a5b"
 
   url "https://your-domain.com/downloads/i-cant-code-mac.dmg"
   name "i cant code"

@@ -90,16 +90,16 @@ export default function DownloadPage() {
       const mockReleases: Release[] = [
         {
           id: 1,
-          name: 'i cant code v1.0.6',
-          tag_name: 'v1.0.6',
-          published_at: '2025-08-31T23:00:00Z',
-          body: 'Latest stable release with bug fixes and improvements.',
+          name: 'i cant code v1.0.7',
+          tag_name: 'v1.0.7',
+          published_at: '2025-08-31T23:30:00Z',
+          body: 'Latest stable release with user-friendly installation and white blank window fix.',
           assets: [
             {
               id: 1,
-              name: 'i-cant-code-mac-v1.0.6.dmg',
-              browser_download_url: '/downloads/i-cant-code-mac-v1.0.6.dmg',
-              size: 104716710, // ~99.9MB
+              name: 'i-cant-code-mac-v1.0.7.dmg',
+              browser_download_url: '/downloads/i-cant-code-mac-v1.0.7.dmg',
+              size: 104712672, // ~99.9MB
               download_count: 1250
             },
             {
@@ -111,9 +111,9 @@ export default function DownloadPage() {
             },
             {
               id: 3,
-              name: 'i-cant-code-mac-apple-silicon-v1.0.6.dmg',
-              browser_download_url: '/downloads/i-cant-code-mac-apple-silicon-v1.0.6.dmg',
-              size: 99636938, // ~95.0MB
+              name: 'i-cant-code-mac-apple-silicon-v1.0.7.dmg',
+              browser_download_url: '/downloads/i-cant-code-mac-apple-silicon-v1.0.7.dmg',
+              size: 99636869, // ~95.0MB
               download_count: 850
             }
           ]

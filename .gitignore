@@ -111,7 +111,7 @@ website/
 website/
 
 # Large files
-*.dmg
+# *.dmg  # Commented out to allow DMG files in public/downloads
 *.exe
 *.zip
 *.tar.gz

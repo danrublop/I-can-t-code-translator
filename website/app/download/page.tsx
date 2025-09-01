@@ -99,7 +99,7 @@ export default function DownloadPage() {
               id: 1,
               name: 'i-cant-code-mac-v1.0.7.dmg',
               browser_download_url: '/downloads/i-cant-code-mac-v1.0.7.dmg',
-              size: 104712672, // ~99.9MB
+              size: 178395473, // ~170.1MB
               download_count: 1250
             },
             {
@@ -108,13 +108,6 @@ export default function DownloadPage() {
               browser_download_url: '/downloads/i-cant-code-windows-v1.0.6.exe',
               size: 80772418, // ~77.0MB
               download_count: 980
-            },
-            {
-              id: 3,
-              name: 'i-cant-code-mac-apple-silicon-v1.0.7.dmg',
-              browser_download_url: '/downloads/i-cant-code-mac-apple-silicon-v1.0.7.dmg',
-              size: 99636869, // ~95.0MB
-              download_count: 850
             }
           ]
         }
@@ -270,16 +263,14 @@ export default function DownloadPage() {
 
   const getPlatformName = (platform: string) => {
     if (platform.includes('apple-silicon')) return 'macOS (Apple Silicon)'
-    if (platform.includes('mac')) return 'macOS (Intel)'
+    if (platform.includes('mac')) return 'macOS (Universal)'
     if (platform.includes('windows')) return 'Windows'
     return 'Unknown'
   }
 
   const getFilteredAssets = (assets: ReleaseAsset[]) => {
-    if (userPlatform === 'mac-apple-silicon') {
-      return assets.filter(asset => asset.name.includes('apple-silicon'))
-    } else if (userPlatform === 'mac-intel') {
-      return assets.filter(asset => asset.name.includes('mac') && !asset.name.includes('apple-silicon'))
+    if (userPlatform === 'mac-apple-silicon' || userPlatform === 'mac-intel') {
+      return assets.filter(asset => asset.name.includes('mac'))
     } else if (userPlatform === 'windows') {
       return assets.filter(asset => asset.name.includes('windows'))
     } else {
@@ -458,8 +449,7 @@ export default function DownloadPage() {
               </p>
               {userPlatform !== 'unknown' && (
                 <p className="text-sm text-gray-500 mt-2">
-                  Detected platform: {userPlatform === 'mac-apple-silicon' ? 'macOS (Apple Silicon)' : 
-                                    userPlatform === 'mac-intel' ? 'macOS (Intel)' : 
+                  Detected platform: {(userPlatform === 'mac-apple-silicon' || userPlatform === 'mac-intel') ? 'macOS (Universal)' : 
                                     userPlatform === 'windows' ? 'Windows' : 'Unknown'}
                 </p>
               )}

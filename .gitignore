@@ -109,3 +109,17 @@ jspm_packages/
 website/
 
 website/
+
+# Large files
+*.dmg
+*.exe
+*.zip
+*.tar.gz
+*.deb
+*.rpm
+*.AppImage
+
+# Next.js specific
+.next/
+node_modules/
+package-lock.json

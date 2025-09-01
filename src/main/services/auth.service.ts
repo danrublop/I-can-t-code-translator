@@ -58,9 +58,9 @@ export class AuthService {
   };
 
   private authWindow: BrowserWindow | null = null;
-  private readonly AUTH_URL = 'http://localhost:3000/auth'; // Development auth website
+  private readonly AUTH_URL = 'https://i-cant-code.vercel.app/auth'; // Production auth website
   private readonly CLIENT_ID = 'your-client-id'; // Replace with your actual client ID
-  private readonly REDIRECT_URI = 'http://localhost:3000/auth/callback';
+  private readonly REDIRECT_URI = 'https://i-cant-code.vercel.app/auth/callback';
   private readonly AUTH_FILE_NAME = 'auth-session.json';
   private readonly SESSION_DURATION_DAYS = 30;
   private readonly VERSION_CHECK_URL = 'https://api.icantcode.app/version'; // Your website version endpoint

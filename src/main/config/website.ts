@@ -4,13 +4,12 @@ export const WEBSITE_CONFIG = {
   DEV_URL: 'http://localhost:3000',
   
   // Production (update this when deploying)
-  PROD_URL: 'https://your-domain.com',
+  PROD_URL: 'https://i-cant-code.vercel.app',
   
   // Get the appropriate URL based on environment
   getBaseUrl: () => {
-    // For now, always use development URL in Electron app
-    // TODO: Add proper environment detection
-    return WEBSITE_CONFIG.DEV_URL;
+    // Use production URL for the deployed app
+    return WEBSITE_CONFIG.PROD_URL;
   },
   
   // Authentication endpoints

@@ -1160,8 +1160,17 @@ class MainProcess {
         this.savedExplanations = JSON.parse(data);
         console.log(`Loaded ${this.savedExplanations.length} explanations from file`);
       } else {
-        this.savedExplanations = [];
-        console.log('No existing explanations file found, starting with empty list');
+        // Try to find backup files or old locations
+        await this.migrateExplanationsData();
+        
+        if (existsSync(this.explanationsFilePath)) {
+          const data = await readFileAsync(this.explanationsFilePath, 'utf8');
+          this.savedExplanations = JSON.parse(data);
+          console.log(`Migrated and loaded ${this.savedExplanations.length} explanations from backup`);
+        } else {
+          this.savedExplanations = [];
+          console.log('No existing explanations file found, starting with empty list');
+        }
       }
     } catch (error) {
       console.error('Error loading explanations from file:', error);
@@ -1169,8 +1178,42 @@ class MainProcess {
     }
   }
 
+  private async migrateExplanationsData(): Promise<void> {
+    try {
+      const userDataPath = app.getPath('userData');
+      const possiblePaths = [
+        join(userDataPath, 'explanations.json'),
+        join(userDataPath, 'saved-explanations.json'),
+        join(userDataPath, 'codebook.json'),
+        join(userDataPath, 'notebook.json')
+      ];
+
+      for (const path of possiblePaths) {
+        if (existsSync(path) && path !== this.explanationsFilePath) {
+          console.log(`Found explanations data at: ${path}`);
+          const data = await readFileAsync(path, 'utf8');
+          const explanations = JSON.parse(data);
+          
+          // Save to the new location
+          await writeFileAsync(this.explanationsFilePath, JSON.stringify(explanations, null, 2), 'utf8');
+          console.log(`Migrated ${explanations.length} explanations to new location`);
+          break;
+        }
+      }
+    } catch (error) {
+      console.error('Error during data migration:', error);
+    }
+  }
+
   private async saveExplanationsToFile(): Promise<void> {
     try {
+      // Create backup before saving
+      if (existsSync(this.explanationsFilePath)) {
+        const backupPath = this.explanationsFilePath.replace('.json', '.backup.json');
+        await writeFileAsync(backupPath, JSON.stringify(this.savedExplanations, null, 2), 'utf8');
+      }
+
+      // Save to main file
       await writeFileAsync(this.explanationsFilePath, JSON.stringify(this.savedExplanations, null, 2), 'utf8');
       console.log(`Saved ${this.savedExplanations.length} explanations to file`);
     } catch (error) {

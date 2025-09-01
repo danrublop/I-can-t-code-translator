@@ -97,11 +97,12 @@ export class AuthService {
         return;
       }
 
-      // Check if app version has changed (force re-auth on updates)
+      // Check if app version has changed (preserve auth across updates)
       if (authData.appVersion !== this.currentAppVersion) {
-        console.log(`App version changed from ${authData.appVersion} to ${this.currentAppVersion}, requiring new login`);
-        this.clearStoredAuth();
-        return;
+        console.log(`App version changed from ${authData.appVersion} to ${this.currentAppVersion}, preserving auth session`);
+        // Update the stored version but keep the auth session
+        authData.appVersion = this.currentAppVersion;
+        this.saveAuthState();
       }
 
       // Check website version in background (don't block auth loading)

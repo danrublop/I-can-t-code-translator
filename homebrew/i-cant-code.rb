@@ -1,5 +1,5 @@
 cask "i-cant-code" do
-  version "1.0.4"
+  version "1.0.6"
   sha256 "a8436f0a6927003ba4fa2be79c34a810758758613a96c8134620348496734a45"
 
   url "https://your-domain.com/downloads/i-cant-code-mac.dmg"

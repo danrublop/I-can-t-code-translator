@@ -1,4 +1,4 @@
-# Release Notes - Version 1.0.4
+# Release Notes - Version 1.0.6
 
 ## Bug Fixes
 
@@ -18,8 +18,8 @@
 
 ### Files Modified
 - `src/main/main.ts` - Fixed notification window creation
-- `package.json` - Updated version to 1.0.4
-- `homebrew/i-cant-code.rb` - Updated version to 1.0.4
+- `package.json` - Updated version to 1.0.6
+- `homebrew/i-cant-code.rb` - Updated version to 1.0.6
 
 ## Installation
 
@@ -38,6 +38,8 @@ Download the latest version from the website or GitHub releases.
 - Compatible with existing saved explanations and user data
 
 ## Previous Versions
+- v1.0.5 - Previous release
+- v1.0.4 - Bug fix release
 - v1.0.3 - Previous release
 - v1.0.2 - Initial stable release
 - v1.0.1 - Beta release

@@ -110,7 +110,7 @@ jspm_packages/
 
 # Large files
 # *.dmg  # Commented out to allow DMG files in public/downloads
-# *.exe  # Commented out to allow EXE files in public/downloads
+*.exe
 *.zip
 *.tar.gz
 *.deb

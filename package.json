@@ -93,10 +93,10 @@
         }
       ],
       "icon": "build-resources/icon.icns",
-      "hardenedRuntime": false,
+      "hardenedRuntime": true,
       "gatekeeperAssess": false,
-      "identity": null,
-      "sign": false
+      "entitlements": "build-resources/entitlements.mac.plist",
+      "entitlementsInherit": "build-resources/entitlements.mac.plist"
     },
     "win": {
       "target": [
@@ -140,9 +140,7 @@
       "createStartMenuShortcut": true
     },
     "dmg": {
-      "title": "i cant code",
-      "sign": false,
-      "format": "ULFO"
+      "title": "i cant code"
     }
   }
 }

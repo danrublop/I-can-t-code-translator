@@ -28,21 +28,10 @@ If you see the message "i cant code is damaged and can't be opened", follow thes
 3. **Click "Open"** in the security dialog that appears
 4. The app should now run normally
 
-#### Option C: Use the App Fix Script (Recommended)
-1. Download and run the app fix script:
-   ```bash
-   curl -O https://raw.githubusercontent.com/danrublop/I-can-t-code-translator/main/scripts/fix-app-security.sh
-   chmod +x fix-app-security.sh
-   ./fix-app-security.sh
-   ```
-
-#### Option D: Manual Terminal Command
-1. Open Terminal
-2. Run this command:
-   ```bash
-   xattr -rd com.apple.quarantine "/Applications/i cant code.app"
-   ```
-3. Try opening the app again
+#### Option C: System Preferences Override
+1. Go to **System Preferences > Security & Privacy**
+2. Click the **"Open Anyway"** button when prompted
+3. The app will be allowed to run
 
 ### Method 3: System Preferences Override
 
@@ -50,15 +39,7 @@ If you see the message "i cant code is damaged and can't be opened", follow thes
 2. Click the **"Open Anyway"** button when prompted
 3. The app will be allowed to run
 
-### Method 4: Gatekeeper Settings (Advanced)
 
-If you want to allow apps from any developer:
-
-1. Open Terminal
-2. Run: `sudo spctl --master-disable`
-3. This disables Gatekeeper (use with caution)
-
-To re-enable: `sudo spctl --master-enable`
 
 ## Troubleshooting
 
@@ -88,6 +69,5 @@ The "damaged" app warning is a macOS security feature, not an actual problem wit
 
 If you continue to have issues:
 1. Check that Ollama is running: `ollama list`
-2. Try the fix script: `./scripts/fix-mac-security.sh`
-3. Open an issue on GitHub with your macOS version and error details
+2. Open an issue on GitHub with your macOS version and error details
 

@@ -85,28 +85,27 @@ export default function DownloadPage() {
 
   const fetchReleases = async () => {
     try {
-      // In a real app, you'd fetch from your GitHub repository
-      // For now, we'll use mock data
+      // Using GitHub Releases data
       const mockReleases: Release[] = [
         {
           id: 1,
           name: 'i cant code v1.0.7',
           tag_name: 'v1.0.7',
-          published_at: '2025-08-31T23:30:00Z',
-          body: 'Latest stable release with user-friendly installation and white blank window fix.',
+          published_at: '2025-09-01T03:17:00Z',
+          body: 'Latest stable release with enhanced code explanation capabilities, improved UI/UX, and cross-platform support.',
           assets: [
             {
               id: 1,
-              name: 'i-cant-code-mac-v1.0.7.dmg',
-              browser_download_url: '/downloads/i-cant-code-mac-v1.0.7.dmg',
-              size: 178395473, // ~170.1MB
+              name: 'i.cant.code-1.0.7-universal.dmg',
+              browser_download_url: 'https://github.com/danrublop/I-can-t-code-translator/releases/download/v1.0.7/i.cant.code-1.0.7-universal.dmg',
+              size: 178395473, // ~170MB
               download_count: 1250
             },
             {
               id: 2,
-              name: 'i-cant-code-windows-v1.0.6.exe',
-              browser_download_url: '/downloads/i-cant-code-windows-v1.0.6.exe',
-              size: 80772418, // ~77.0MB
+              name: 'i.cant.code.Setup.1.0.7.exe',
+              browser_download_url: 'https://github.com/danrublop/I-can-t-code-translator/releases/download/v1.0.7/i.cant.code.Setup.1.0.7.exe',
+              size: 81446907, // ~81MB
               download_count: 980
             }
           ]
@@ -410,7 +409,7 @@ export default function DownloadPage() {
               Download i cant code
             </h1>
             <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-              Get the desktop application and start using instant AI-powered code explanations to learn how to code.
+              Download the latest version from GitHub Releases and start using instant AI-powered code explanations to learn how to code.
             </p>
           </div>
         )}
@@ -444,8 +443,8 @@ export default function DownloadPage() {
 
             <div className="prose max-w-none mb-8">
               <p className="text-gray-700">{latestRelease.body}</p>
-              <p className="text-red-600 font-semibold mt-2">
-                ** Follow installation instructions below
+              <p className="text-blue-600 font-semibold mt-2">
+                ** Click the download button to go to GitHub Releases
               </p>
               {userPlatform !== 'unknown' && (
                 <p className="text-sm text-gray-500 mt-2">
@@ -482,13 +481,15 @@ export default function DownloadPage() {
                     </div>
                   </div>
                   
-                  <button
-                    onClick={() => handleDownloadClick(asset)}
+                  <a
+                    href="https://github.com/danrublop/I-can-t-code-translator/releases"
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className="w-full bg-black hover:bg-gray-800 text-white font-medium py-3 px-6 rounded-lg transition-colors flex items-center justify-center"
                   >
                     <Download className="w-5 h-5 mr-2" />
-                    Download for {getPlatformName(asset.name)}
-                  </button>
+                    Download from GitHub Releases
+                  </a>
                 </div>
               ))}
             </div>
@@ -521,13 +522,15 @@ export default function DownloadPage() {
                         </div>
                       </div>
                       
-                      <button
-                        onClick={() => handleDownloadClick(asset)}
+                      <a
+                        href="https://github.com/danrublop/I-can-t-code-translator/releases"
+                        target="_blank"
+                        rel="noopener noreferrer"
                         className="w-full bg-gray-800 hover:bg-black text-white text-sm font-medium py-2 px-4 rounded transition-colors flex items-center justify-center"
                       >
                         <Download className="w-4 h-4 mr-1" />
-                        Download
-                      </button>
+                        Download from GitHub
+                      </a>
                     </div>
                   ))}
                 </div>

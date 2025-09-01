@@ -1186,6 +1186,7 @@ class MainProcess {
       frame: false,
       alwaysOnTop: true,
       skipTaskbar: true,
+      show: false, // Don't show until ready to prevent white flash
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true
@@ -1228,6 +1229,11 @@ class MainProcess {
         </body>
       </html>
     `);
+
+    // Show window when ready to prevent white flash
+    notificationWindow.once('ready-to-show', () => {
+      notificationWindow.show();
+    });
 
     // Auto-close after 3 seconds
     setTimeout(() => {

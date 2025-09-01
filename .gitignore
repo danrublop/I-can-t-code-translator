@@ -105,10 +105,8 @@ jspm_packages/
 # TernJS port file
 .tern-port
 
-# Website folder - excluded from main repo
-website/
-
-website/
+# Website folder - now included for Vercel deployment
+# website/
 
 # Large files
 # *.dmg  # Commented out to allow DMG files in public/downloads

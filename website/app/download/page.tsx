@@ -444,7 +444,7 @@ export default function DownloadPage() {
             <div className="prose max-w-none mb-8">
               <p className="text-gray-700">{latestRelease.body}</p>
               <p className="text-blue-600 font-semibold mt-2">
-                ** Click the download button to go to GitHub Releases
+                ** Click the download button to open GitHub Releases in a new tab
               </p>
               {userPlatform !== 'unknown' && (
                 <p className="text-sm text-gray-500 mt-2">
@@ -481,15 +481,13 @@ export default function DownloadPage() {
                     </div>
                   </div>
                   
-                  <a
-                    href="https://github.com/danrublop/I-can-t-code-translator/releases"
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <button
+                    onClick={() => window.open('https://github.com/danrublop/I-can-t-code-translator/releases', '_blank')}
                     className="w-full bg-black hover:bg-gray-800 text-white font-medium py-3 px-6 rounded-lg transition-colors flex items-center justify-center"
                   >
                     <Download className="w-5 h-5 mr-2" />
-                    Download from GitHub Releases
-                  </a>
+                    Download for {getPlatformName(asset.name)}
+                  </button>
                 </div>
               ))}
             </div>
@@ -522,15 +520,13 @@ export default function DownloadPage() {
                         </div>
                       </div>
                       
-                      <a
-                        href="https://github.com/danrublop/I-can-t-code-translator/releases"
-                        target="_blank"
-                        rel="noopener noreferrer"
+                      <button
+                        onClick={() => window.open('https://github.com/danrublop/I-can-t-code-translator/releases', '_blank')}
                         className="w-full bg-gray-800 hover:bg-black text-white text-sm font-medium py-2 px-4 rounded transition-colors flex items-center justify-center"
                       >
                         <Download className="w-4 h-4 mr-1" />
-                        Download from GitHub
-                      </a>
+                        Download
+                      </button>
                     </div>
                   ))}
                 </div>

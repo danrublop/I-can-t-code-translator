@@ -67,6 +67,70 @@ declare global {
       // Website authentication operations
       openAuthWebsite: () => Promise<{ success: boolean; error?: string }>;
       closeLoginWindow: () => Promise<{ success: boolean; error?: string }>;
+      
+      // Authentication state change listener
+      onAuthStateChanged: (callback: (data: { isAuthenticated: boolean; user?: any }) => void) => void;
+      removeAuthStateChangedListener: () => void;
+      
+      // Authentication status listener (for initial status)
+      onAuthStatus: (callback: (data: { isAuthenticated: boolean; user?: any }) => void) => void;
+      removeAuthStatusListener: () => void;
+      
+      // Authentication refresh
+      authRefreshState: () => Promise<{ success: boolean; isAuthenticated?: boolean; user?: any; error?: string }>;
+      
+      // Session management
+      getSessionInfo: () => Promise<{
+        success: boolean;
+        sessionInfo?: {
+          daysRemaining: number;
+          expiresAt: Date;
+          appVersion: string;
+        } | null;
+        error?: string;
+      }>;
+      extendSession: () => Promise<{ success: boolean; error?: string }>;
+      
+      // Version checking
+      checkForUpdates: () => Promise<{
+        success: boolean;
+        versionInfo?: {
+          appVersion: string;
+          websiteVersion: string;
+          hasUpdate: boolean;
+          updateAvailable?: {
+            version: string;
+            releaseNotes: string;
+            downloadUrl: string;
+          };
+        };
+        error?: string;
+      }>;
+      forceVersionCheck: () => Promise<{
+        success: boolean;
+        requiresReauth?: boolean;
+        error?: string;
+      }>;
+      
+      // Ollama operations
+      getOllamaStatus: () => Promise<{ 
+        success: boolean; 
+        status?: {
+          isRunning: boolean;
+          isStarting: boolean;
+          error?: string;
+        };
+        error?: string 
+      }>;
+      startOllama: () => Promise<{ 
+        success: boolean; 
+        status?: {
+          isRunning: boolean;
+          isStarting: boolean;
+          error?: string;
+        };
+        error?: string 
+      }>;
     };
   }
 }

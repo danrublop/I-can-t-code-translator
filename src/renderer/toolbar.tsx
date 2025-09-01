@@ -1,3 +1,4 @@
+/// <reference path="./electron-api.d.ts" />
 import React, { useEffect, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import './toolbar.css';

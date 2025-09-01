@@ -891,8 +891,30 @@ const Explanation: React.FC<ExplanationProps> = () => {
   };
 
   const handleLogout = async () => {
-    setIsAuthenticated(false);
-    setUser(null);
+    try {
+      if (window.electronAPI) {
+        console.log('Attempting logout...');
+        const result = await (window.electronAPI as any).authLogout();
+        if (result.success) {
+          console.log('Logout successful');
+          setIsAuthenticated(false);
+          setUser(null);
+          // The main process will handle closing the window and updating the toolbar
+        } else {
+          console.error('Logout failed:', result.error);
+        }
+      } else {
+        console.error('electronAPI not available for logout');
+        // Fallback: just clear local state
+        setIsAuthenticated(false);
+        setUser(null);
+      }
+    } catch (error) {
+      console.error('Error during logout:', error);
+      // Still clear local state as fallback
+      setIsAuthenticated(false);
+      setUser(null);
+    }
   };
 
   // Track saved explanations to prevent duplicates

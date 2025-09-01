@@ -28,7 +28,15 @@ If you see the message "i cant code is damaged and can't be opened", follow thes
 3. **Click "Open"** in the security dialog that appears
 4. The app should now run normally
 
-#### Option C: Terminal Command
+#### Option C: Use the App Fix Script (Recommended)
+1. Download and run the app fix script:
+   ```bash
+   curl -O https://raw.githubusercontent.com/danrublop/I-can-t-code-translator/main/scripts/fix-app-security.sh
+   chmod +x fix-app-security.sh
+   ./fix-app-security.sh
+   ```
+
+#### Option D: Manual Terminal Command
 1. Open Terminal
 2. Run this command:
    ```bash

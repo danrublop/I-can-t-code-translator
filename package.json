@@ -95,8 +95,6 @@
       "icon": "build-resources/icon.icns",
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
-      "entitlements": "build-resources/entitlements.mac.plist",
-      "entitlementsInherit": "build-resources/entitlements.mac.plist",
       "identity": null,
       "sign": false
     },

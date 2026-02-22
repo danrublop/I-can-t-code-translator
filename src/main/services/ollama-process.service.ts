@@ -57,11 +57,24 @@ export class OllamaProcessService {
     try {
       this.status.isStarting = true;
       this.status.error = undefined;
-      
+
       console.log('Starting Ollama...');
-      
+
       // Determine the command based on platform
-      const command = this.getOllamaCommand();
+      let command = this.getOllamaCommand();
+
+      // Ensure Ollama is installed
+      if (!this.isOllamaInstalled()) {
+        console.log('Ollama is not installed. Attempting to install...');
+        const installed = await this.installOllama();
+        if (!installed) {
+          throw new Error('Ollama installation failed or user denied prompt');
+        }
+        command = this.getOllamaCommand(); // Refresh command logic after potential install
+        if (!this.isOllamaInstalled()) {
+          throw new Error('Ollama was seemingly installed but is still not available locally.');
+        }
+      }
 
       // Spawn the Ollama process
       this.ollamaProcess = spawn(command, ['serve'], {
@@ -74,7 +87,7 @@ export class OllamaProcessService {
 
       // Wait for Ollama to be ready (with timeout)
       const isReady = await this.waitForOllamaReady(30000); // 30 second timeout
-      
+
       if (isReady) {
         this.status.isRunning = true;
         this.status.isStarting = false;
@@ -96,7 +109,7 @@ export class OllamaProcessService {
 
   private getOllamaCommand(): string {
     const os = platform();
-    
+
     // Try to find Ollama in common locations
     switch (os) {
       case 'darwin': // macOS
@@ -116,11 +129,68 @@ export class OllamaProcessService {
           }
         }
         return 'ollama'; // Fallback to PATH
-      case 'win32': // Windows
         return 'ollama.exe';
       default:
         return 'ollama';
     }
+  }
+
+  private isOllamaInstalled(): boolean {
+    const os = platform();
+
+    switch (os) {
+      case 'darwin': // macOS
+        const macPaths = ['/usr/local/bin/ollama', '/opt/homebrew/bin/ollama'];
+        return macPaths.some(path => existsSync(path));
+      case 'linux':
+        const linuxPaths = ['/usr/local/bin/ollama', '/usr/bin/ollama'];
+        return linuxPaths.some(path => existsSync(path));
+      case 'win32': // Windows
+        // Checking for purely global PATH installation might necessitate a shell call,
+        // but for now we fallback to checking standard Windows installation paths if they exist
+        // or assuming it's uninstalled if we're uncertain
+        const winPath = 'C:\\Users\\' + process.env.USERNAME + '\\AppData\\Local\\Programs\\Ollama\\ollama.exe';
+        return existsSync(winPath);
+      default:
+        return false;
+    }
+  }
+
+  private async installOllama(): Promise<boolean> {
+    return new Promise((resolve) => {
+      const os = platform();
+      let cmd = '';
+
+      if (os === 'darwin') {
+        cmd = 'curl -fsSL https://ollama.com/install.sh | sh';
+      } else if (os === 'linux') {
+        cmd = 'curl -fsSL https://ollama.com/install.sh | sh';
+      } else if (os === 'win32') {
+        // Requires downloading the exe and running it. Not fully automated via single line usually.
+        console.warn('Auto-install on Windows is not straightforward. Please install from ollama.com');
+        return resolve(false);
+      } else {
+        return resolve(false);
+      }
+
+      console.log('Running installation command:', cmd);
+      const sudo = require('sudo-prompt');
+      const options = {
+        name: 'I Cant Code Translator',
+      };
+
+      sudo.exec(cmd, options, (error: any, stdout: any, stderr: any) => {
+        if (error) {
+          console.error('Ollama installation failed:', error);
+          resolve(false);
+          return;
+        }
+        console.log('Ollama installation stdout:', stdout);
+        console.error('Ollama installation stderr:', stderr);
+
+        resolve(this.isOllamaInstalled());
+      });
+    });
   }
 
   private setupProcessHandlers(): void {
@@ -178,18 +248,18 @@ export class OllamaProcessService {
     if (this.ollamaProcess) {
       console.log('Stopping Ollama process...');
       this.ollamaProcess.kill('SIGTERM');
-      
+
       // Wait a bit for graceful shutdown
       await new Promise(resolve => setTimeout(resolve, 2000));
-      
+
       // Force kill if still running
       if (this.ollamaProcess && !this.ollamaProcess.killed) {
         this.ollamaProcess.kill('SIGKILL');
       }
-      
+
       this.ollamaProcess = null;
     }
-    
+
     this.status.isRunning = false;
     this.status.isStarting = false;
   }
@@ -200,7 +270,7 @@ export class OllamaProcessService {
       const response = await axios.get(`${this.baseUrl}/api/tags`, { timeout: 5000 });
       const models = response.data.models || [];
       const modelExists = models.some((model: any) => model.name === modelName);
-      
+
       if (modelExists) {
         console.log(`Model ${modelName} is already available`);
         return true;

@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import './toolbar.css';
 
-interface ToolbarProps {}
+interface ToolbarProps { }
 
 interface ToolbarState {
   status: 'ready' | 'processing' | 'error' | 'warning';
@@ -35,9 +35,9 @@ const Toolbar: React.FC<ToolbarProps> = () => {
       status: 'ready',
       statusText: 'Ready'
     }));
-    
+
     // No periodic connection check needed
-    
+
     // Set up clipboard update listener
     if (window.electronAPI) {
       console.log('Setting up clipboard update listener');
@@ -50,7 +50,7 @@ const Toolbar: React.FC<ToolbarProps> = () => {
           hasContent: data.hasContent
         }));
       });
-      
+
       // Set up authentication status listener
       (window.electronAPI as any).onAuthStatus((data: any) => {
         console.log('Auth status received:', data);
@@ -60,7 +60,7 @@ const Toolbar: React.FC<ToolbarProps> = () => {
           user: data.user
         }));
       });
-      
+
       // Set up authentication state change listener
       (window.electronAPI as any).onAuthStateChanged((data: any) => {
         console.log('Auth state changed:', data);
@@ -73,7 +73,7 @@ const Toolbar: React.FC<ToolbarProps> = () => {
     } else {
       console.error('electronAPI not available in toolbar');
     }
-    
+
     return () => {
       // No interval to clear
       if (window.electronAPI) {
@@ -103,7 +103,7 @@ const Toolbar: React.FC<ToolbarProps> = () => {
 
   const getShortcutKeys = () => {
     const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
-    
+
     if (isMac) {
       return {
         copy: '⌘C',
@@ -148,12 +148,12 @@ const Toolbar: React.FC<ToolbarProps> = () => {
               <span className="key" id="toggle-key">{shortcuts.toggle}</span>
             </div>
           </div>
-          
+
           <div className="context-files">
             <span>Context:</span>
             <span className="file-count" id="file-count">{state.contextFileCount}</span>
           </div>
-          
+
           {/* Line Counter */}
           {state.hasContent && (
             <div className="line-counter" style={{
@@ -170,7 +170,7 @@ const Toolbar: React.FC<ToolbarProps> = () => {
             </div>
           )}
         </div>
-        
+
         {/* Right side - Status and settings */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           {/* Status Indicator */}
@@ -179,108 +179,73 @@ const Toolbar: React.FC<ToolbarProps> = () => {
             alignItems: 'center',
             gap: '8px'
           }}>
-            {state.isAuthenticated ? (
-              <>
-                <div className={getStatusDotClass(state.status)}></div>
-                <span id="status-text">{state.statusText}</span>
-              </>
-            ) : (
-              <>
-                <div className="status-dot error"></div>
-                <span 
-                  id="status-text" 
-                  style={{ 
-                    color: '#ef4444', 
-                    fontWeight: '500',
-                    cursor: 'pointer',
-                    textDecoration: 'underline'
-                  }}
-                  onClick={() => {
-                    console.log('Login Required clicked');
-                    if (window.electronAPI) {
-                      console.log('electronAPI available, calling openAuthWebsite');
-                      window.electronAPI.openAuthWebsite();
-                    } else {
-                      console.error('electronAPI not available in toolbar');
-                    }
-                  }}
-                  title="Click to login"
-                >
-                  Login Required
-                </span>
-              </>
-            )}
+            <div className={getStatusDotClass(state.status)}></div>
+            <span id="status-text">{state.statusText}</span>
           </div>
-          
-          {/* Notebook Button - Only show when authenticated */}
-          {state.isAuthenticated && (
-            <button 
-              className="notebook-button"
-              onClick={() => {
-                console.log('Notebook button clicked');
-                if (window.electronAPI) {
-                  console.log('electronAPI available, calling openNotebookInExplanation');
-                  window.electronAPI.openNotebookInExplanation();
-                } else {
-                  console.error('electronAPI not available in toolbar');
-                }
-              }}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: '#e5e7eb',
-                padding: '6px 12px',
-                borderRadius: '20px',
-                cursor: 'pointer',
-                fontSize: '12px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginRight: '8px',
-                fontWeight: '500'
-              }}
-              title="Codebook"
-            >
-              codebook
-            </button>
-          )}
 
+          {/* Notebook Button */}
+          <button
+            className="notebook-button"
+            onClick={() => {
+              console.log('Notebook button clicked');
+              if (window.electronAPI) {
+                console.log('electronAPI available, calling openNotebookInExplanation');
+                window.electronAPI.openNotebookInExplanation();
+              } else {
+                console.error('electronAPI not available in toolbar');
+              }
+            }}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: '#e5e7eb',
+              padding: '6px 12px',
+              borderRadius: '20px',
+              cursor: 'pointer',
+              fontSize: '12px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginRight: '8px',
+              fontWeight: '500'
+            }}
+            title="Codebook"
+          >
+            codebook
+          </button>
 
-          
-          {/* Settings Button - Only show when authenticated */}
-          {state.isAuthenticated && (
-            <button 
-              className="settings-button"
-              onClick={() => {
-                console.log('Settings button clicked');
-                if (window.electronAPI) {
-                  console.log('electronAPI available, calling openSettingsPage');
-                  window.electronAPI.openSettingsPage();
-                } else {
-                  console.error('electronAPI not available in toolbar');
-                  // Fallback: Send a custom event that the explanation window can listen for
-                  window.postMessage({ type: 'open-settings-page' }, '*');
-                }
-              }}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: '#e5e7eb',
-                padding: '6px',
-                borderRadius: '50%',
-                cursor: 'pointer',
-                fontSize: '16px',
-                width: '24px',
-                height: '24px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}
-              title="Settings"
-            >
-              ⋯
-            </button>
-          )}
+          {/* Settings Button */}
+          <button
+            className="settings-button"
+            onClick={() => {
+              console.log('Settings button clicked');
+              if (window.electronAPI) {
+                console.log('electronAPI available, calling openSettingsPage');
+                window.electronAPI.openSettingsPage();
+              } else {
+                console.error('electronAPI not available in toolbar');
+                // Fallback: Send a custom event that the explanation window can listen for
+                window.postMessage({ type: 'open-settings-page' }, '*');
+              }
+            }}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: '#e5e7eb',
+              padding: '6px',
+              borderRadius: '50%',
+              cursor: 'pointer',
+              fontSize: '16px',
+              width: '24px',
+              height: '24px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
+            title="Settings"
+          >
+            ⋯
+          </button>
         </div>
       </div>
     </div>

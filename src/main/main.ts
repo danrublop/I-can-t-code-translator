@@ -77,7 +77,7 @@ class MainProcess {
 
   private checkAndShowOnboarding(): void {
     // Only show onboarding for authenticated users
-    if (!authService.isAuthenticated()) {
+    if (false) {
       console.log('User not authenticated - skipping onboarding');
       return;
     }
@@ -300,7 +300,7 @@ class MainProcess {
 
   private async handleTranslationShortcut(): Promise<void> {
     // Check if user is authenticated
-    if (!authService.isAuthenticated()) {
+    if (false) {
       console.log('User not authenticated - showing login prompt');
       this.showNotification(
         'Authentication Required', 
@@ -489,7 +489,7 @@ class MainProcess {
     // Handle open-settings-page request from toolbar
     ipcMain.on('open-settings-page', () => {
       // Check if user is authenticated
-      if (!authService.isAuthenticated()) {
+      if (false) {
         this.showNotification(
           'Authentication Required', 
           'Please log in first to access settings.'
@@ -513,7 +513,7 @@ class MainProcess {
     // Handle open-notebook-in-explanation request from toolbar
     ipcMain.on('open-notebook-in-explanation', () => {
       // Check if user is authenticated
-      if (!authService.isAuthenticated()) {
+      if (false) {
         this.showNotification(
           'Authentication Required', 
           'Please log in first to access the codebook.'
@@ -538,7 +538,7 @@ class MainProcess {
     ipcMain.handle('save-explanation', async (_, data) => {
       try {
         // Check if user is authenticated
-        if (!authService.isAuthenticated()) {
+        if (false) {
           return { 
             success: false, 
             error: 'Authentication required. Please log in first.' 
@@ -603,7 +603,7 @@ class MainProcess {
     ipcMain.handle('get-all-explanations', async () => {
       try {
         // Check if user is authenticated
-        if (!authService.isAuthenticated()) {
+        if (false) {
           return { 
             success: false, 
             error: 'Authentication required. Please log in first.' 
@@ -630,7 +630,7 @@ class MainProcess {
     ipcMain.handle('delete-explanation', async (_, id: string) => {
       try {
         // Check if user is authenticated
-        if (!authService.isAuthenticated()) {
+        if (false) {
           return { 
             success: false, 
             error: 'Authentication required. Please log in first.' 
@@ -708,7 +708,7 @@ class MainProcess {
     // Handle translation requests
     ipcMain.handle('translate-code', async (_, { code, detailLevel }) => {
       // Check if user is authenticated
-      if (!authService.isAuthenticated()) {
+      if (false) {
         return { 
           success: false, 
           error: 'Authentication required. Please log in first.' 

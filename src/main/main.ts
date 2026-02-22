@@ -69,6 +69,9 @@ class MainProcess {
     // Handle app lifecycle
     this.handleAppLifecycle();
 
+    // Start Ollama automatically
+    this.startOllamaIfNeeded();
+
     // Track app launch
     analyticsService.trackAppLaunch();
 

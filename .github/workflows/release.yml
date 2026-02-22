@@ -57,7 +57,7 @@ jobs:
           
           **System Requirements:**
           - macOS 10.15+ 
-          - Ollama installed with Mistral model
+          - Ollama installed (The Mistral model will be downloaded automatically)
           
           **Need help?** Check our [installation guide](https://github.com/danrublop/I-can-t-code-translator#readme)
         draft: false

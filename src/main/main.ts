@@ -37,7 +37,7 @@ class MainProcess {
     this.codeAnalysisService = new CodeAnalysisService();
     this.licenseService = new LicenseService();
     // this.explanationStorageService = new ExplanationStorageService();
-    
+
     // Set up persistent storage path for explanations
     const userDataPath = app.getPath('userData');
     const explanationsDir = join(userDataPath, 'explanations');
@@ -71,7 +71,7 @@ class MainProcess {
 
     // Track app launch
     analyticsService.trackAppLaunch();
-    
+
     console.log('i cant code - Initialized successfully');
   }
 
@@ -81,9 +81,9 @@ class MainProcess {
       console.log('User not authenticated - skipping onboarding');
       return;
     }
-    
+
     console.log('Checking if authenticated user needs onboarding...');
-    
+
     // For authenticated users, check if they need onboarding
     // The explanation window will check localStorage and show onboarding if needed
     // No delay - create window immediately to prevent white popup
@@ -121,7 +121,7 @@ class MainProcess {
     // Fix the path to load from the correct dist directory
     const toolbarPath = join(__dirname, '..', 'toolbar.html');
     console.log('Loading toolbar from:', toolbarPath);
-    
+
     this.mainWindow.loadFile(toolbarPath).catch(error => {
       console.error('Failed to load toolbar:', error);
     });
@@ -129,7 +129,7 @@ class MainProcess {
     // Wait for the window to be ready before sending data
     this.mainWindow.webContents.on('did-finish-load', () => {
       console.log('i cant code - Toolbar loaded and ready');
-      
+
       // Center the window after content loads
       if (this.mainWindow) {
         const { width: contentWidth } = this.mainWindow.getContentBounds();
@@ -137,17 +137,17 @@ class MainProcess {
         const toolbarX = Math.round((screenWidth - contentWidth) / 2);
         this.mainWindow.setPosition(toolbarX, toolbarY);
       }
-      
+
       // Start clipboard monitoring now that the window is ready
       this.startClipboardMonitoring();
-      
+
       // Send initial clipboard data
       this.updateLineCount(clipboard.readText());
-      
+
       // Check authentication status and notify the renderer
       const isAuthenticated = authService.isAuthenticated();
       console.log('User authentication status:', isAuthenticated);
-      
+
       // Send authentication status to the main window
       if (this.mainWindow && !this.mainWindow.isDestroyed()) {
         this.mainWindow.webContents.send('auth-status', {
@@ -155,7 +155,7 @@ class MainProcess {
           user: authService.getUser()
         });
       }
-      
+
       // Only check for onboarding if user is authenticated
       if (isAuthenticated) {
         this.checkAndShowOnboarding();
@@ -177,7 +177,7 @@ class MainProcess {
     }
 
     console.log('Creating new explanation window...');
-    
+
     // Create explanation window
     this.explanationWindow = new BrowserWindow({
       width: 800,
@@ -194,29 +194,29 @@ class MainProcess {
     });
 
     console.log('Explanation window created, loading HTML...');
-    
+
     // Load explanation HTML
     const explanationPath = join(__dirname, '..', 'explanation.html');
     console.log('Loading explanation window from:', explanationPath);
-    
+
     this.explanationWindow.loadFile(explanationPath).catch(error => {
       console.error('Failed to load explanation window:', error);
     });
 
     this.explanationWindow.webContents.on('did-finish-load', () => {
       console.log('i cant code - Explanation window loaded and ready');
-      
+
       // Send authentication status to explanation window
       const isAuthenticated = authService.isAuthenticated();
       const user = authService.getUser();
-      
+
       if (this.explanationWindow && !this.explanationWindow.isDestroyed()) {
         this.explanationWindow.webContents.send('auth-status', {
           isAuthenticated,
           user
         });
       }
-      
+
       // Send initial message to explanation window
       console.log('Sending initial message to explanation window');
       this.sendExplanationData({
@@ -224,7 +224,7 @@ class MainProcess {
         hasExplanation: false,
         explanationLength: 0
       });
-      
+
       // Show the window after everything is ready
       console.log('Showing explanation window...');
       if (this.explanationWindow && !this.explanationWindow.isDestroyed()) {
@@ -283,14 +283,14 @@ class MainProcess {
   private registerGlobalShortcuts(): void {
     // Translation shortcut: Cmd+Shift+T (Mac) / Ctrl+Shift+T (Windows/Linux)
     const translationShortcut = process.platform === 'darwin' ? 'Cmd+Shift+T' : 'Ctrl+Shift+T';
-    
+
     globalShortcut.register(translationShortcut, () => {
       this.handleTranslationShortcut();
     });
 
     // Toolbar toggle shortcut: Cmd+Shift+H (Mac) / Ctrl+Shift+H (Windows/Linux)
     const toolbarShortcut = process.platform === 'darwin' ? 'Cmd+Shift+H' : 'Ctrl+Shift+H';
-    
+
     globalShortcut.register(toolbarShortcut, () => {
       this.toggleToolbar();
     });
@@ -299,36 +299,21 @@ class MainProcess {
   }
 
   private async handleTranslationShortcut(): Promise<void> {
-    // Check if user is authenticated
-    if (false) {
-      console.log('User not authenticated - showing login prompt');
-      this.showNotification(
-        'Authentication Required', 
-        'Please log in using the login button in the toolbar first.'
-      );
-      
-      // Focus the main window to show the login button
-      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-        this.mainWindow.focus();
-        this.mainWindow.show();
-      }
-      return;
-    }
 
     let clipboardContent = '';
     let language = '';
-    
+
     try {
       console.log('Translation shortcut triggered - checking for highlighted text...');
-      
+
       // Get current clipboard content
       clipboardContent = clipboard.readText();
-      
+
       // If no content, show instructions to the user
       if (!clipboardContent.trim()) {
         console.log('No text in clipboard - showing instructions to user');
         this.showNotification(
-          'No text found', 
+          'No text found',
           'Please highlight text in any app, copy it (Cmd+C), then press Cmd+Shift+T again'
         );
         return;
@@ -339,13 +324,13 @@ class MainProcess {
       // Analyze the code
       language = await this.codeAnalysisService.detectLanguage(clipboardContent);
       console.log(`Detected language: ${language}`);
-      
+
       // Track explanation request
       analyticsService.trackExplanationRequest(language, clipboardContent.length);
-      
+
       // Create explanation window
       this.createExplanationWindow();
-      
+
       // Send data to explanation window
       this.sendExplanationData({
         code: clipboardContent,
@@ -355,9 +340,9 @@ class MainProcess {
 
       // Generate AI explanation with progress tracking
       console.log('Starting AI explanation generation...');
-      
+
       const startTime = Date.now();
-      
+
       // Send initial progress
       this.sendExplanationData({
         code: clipboardContent,
@@ -366,13 +351,13 @@ class MainProcess {
         status: 'processing',
         progress: 0
       });
-      
+
       // Add timeout wrapper to prevent hanging - increase to 2 minutes for Ollama
       const explanation = await Promise.race([
         this.ollamaService.generateExplanation(
-          clipboardContent, 
-          language, 
-          'intermediate', 
+          clipboardContent,
+          language,
+          'intermediate',
           undefined,
           (progress: number, partialResponse: string) => {
             // Send progress updates to the explanation window
@@ -385,21 +370,21 @@ class MainProcess {
             });
           }
         ),
-        new Promise<string>((_, reject) => 
+        new Promise<string>((_, reject) =>
           setTimeout(() => reject(new Error('AI explanation request timed out after 2 minutes')), 120000)
         )
       ]);
-      
+
       console.log('AI explanation received, length:', explanation.length);
-        
+
       // Track explanation completion
       const responseTime = Date.now() - startTime;
       analyticsService.trackExplanationCompleted(language, clipboardContent.length, responseTime, true);
-      
+
       // Award points for successful explanation
       const points = gamificationService.calculatePointsForRequest(language, clipboardContent.length);
       await authService.addPoints(points);
-      
+
       // Check for achievements
       const user = authService.getUser();
       if (user) {
@@ -408,13 +393,13 @@ class MainProcess {
           const achievement = gamificationService.unlockAchievement('first_request');
           if (achievement) {
             this.showNotification(
-              'Achievement Unlocked! 🏆', 
+              'Achievement Unlocked! 🏆',
               `You've unlocked: ${achievement.name} - ${achievement.description}`
             );
           }
         }
       }
-      
+
       // Send final explanation data
       this.sendExplanationData({
         code: clipboardContent,
@@ -423,10 +408,10 @@ class MainProcess {
         status: 'completed',
         progress: 100
       });
-      
+
     } catch (error) {
       console.error('Error in translation shortcut:', error);
-      
+
       // Send error to explanation window
       this.sendExplanationData({
         code: clipboardContent || '',
@@ -435,10 +420,10 @@ class MainProcess {
         status: 'error',
         error: error instanceof Error ? error.message : 'Unknown error occurred'
       });
-      
+
       // Show error notification
       this.showNotification(
-        'Error', 
+        'Error',
         'Failed to generate explanation. Please try again.'
       );
     }
@@ -452,7 +437,7 @@ class MainProcess {
           hasExplanation: !!data.explanation,
           explanationLength: data.explanation?.length || 0
         });
-        
+
         this.explanationWindow.webContents.send('explanation-data', data);
         console.log('Data sent successfully to explanation window');
       } catch (error) {
@@ -491,17 +476,17 @@ class MainProcess {
       // Check if user is authenticated
       if (false) {
         this.showNotification(
-          'Authentication Required', 
+          'Authentication Required',
           'Please log in first to access settings.'
         );
         return;
       }
-      
+
       // Ensure explanation window is open
       if (!this.explanationWindow || this.explanationWindow.isDestroyed()) {
         this.createExplanationWindow();
       }
-      
+
       // Wait a moment for the window to be ready, then send the message
       setTimeout(() => {
         if (this.explanationWindow && !this.explanationWindow.isDestroyed()) {
@@ -515,17 +500,17 @@ class MainProcess {
       // Check if user is authenticated
       if (false) {
         this.showNotification(
-          'Authentication Required', 
+          'Authentication Required',
           'Please log in first to access the codebook.'
         );
         return;
       }
-      
+
       // Ensure explanation window is open
       if (!this.explanationWindow || this.explanationWindow.isDestroyed()) {
         this.createExplanationWindow();
       }
-      
+
       // Wait a moment for the window to be ready, then send the message
       setTimeout(() => {
         if (this.explanationWindow && !this.explanationWindow.isDestroyed()) {
@@ -539,37 +524,37 @@ class MainProcess {
       try {
         // Check if user is authenticated
         if (false) {
-          return { 
-            success: false, 
-            error: 'Authentication required. Please log in first.' 
+          return {
+            success: false,
+            error: 'Authentication required. Please log in first.'
           };
         }
 
         console.log('Saving explanation to notebook:', data);
-        
+
         // Check for duplicates before saving
         if (!this.savedExplanations) {
           this.savedExplanations = [];
         }
-        
+
         // Check for duplicates
-        const isDuplicate = this.savedExplanations.some(existing => 
+        const isDuplicate = this.savedExplanations.some(existing =>
           existing.code === data.code && existing.explanation === data.explanation
         );
-        
+
         if (isDuplicate) {
           console.log('Duplicate explanation detected, skipping save');
           // Return the existing explanation
-          const existingExplanation = this.savedExplanations.find(existing => 
+          const existingExplanation = this.savedExplanations.find(existing =>
             existing.code === data.code && existing.explanation === data.explanation
           );
-          return { 
-            success: true, 
+          return {
+            success: true,
             explanation: existingExplanation,
             isDuplicate: true
           };
         }
-        
+
         // For now, we'll use a simple in-memory storage
         // In a real app, you'd save to a database or file
         const savedExplanation = {
@@ -585,16 +570,16 @@ class MainProcess {
         await this.saveExplanationsToFile();
 
         console.log('Explanation saved successfully:', savedExplanation);
-        
-        return { 
-          success: true, 
-          explanation: savedExplanation 
+
+        return {
+          success: true,
+          explanation: savedExplanation
         };
       } catch (error) {
         console.error('Error saving explanation:', error);
-        return { 
-          success: false, 
-          error: error instanceof Error ? error.message : 'Unknown error' 
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
         };
       }
     });
@@ -604,24 +589,24 @@ class MainProcess {
       try {
         // Check if user is authenticated
         if (false) {
-          return { 
-            success: false, 
-            error: 'Authentication required. Please log in first.' 
+          return {
+            success: false,
+            error: 'Authentication required. Please log in first.'
           };
         }
 
         const explanations = this.savedExplanations || [];
         console.log('Retrieved explanations:', explanations.length);
-        
-        return { 
-          success: true, 
-          explanations 
+
+        return {
+          success: true,
+          explanations
         };
       } catch (error) {
         console.error('Error getting explanations:', error);
-        return { 
-          success: false, 
-          error: error instanceof Error ? error.message : 'Unknown error' 
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
         };
       }
     });
@@ -631,17 +616,17 @@ class MainProcess {
       try {
         // Check if user is authenticated
         if (false) {
-          return { 
-            success: false, 
-            error: 'Authentication required. Please log in first.' 
+          return {
+            success: false,
+            error: 'Authentication required. Please log in first.'
           };
         }
 
         const index = this.savedExplanations.findIndex(exp => exp.id === id);
         if (index === -1) {
-          return { 
-            success: false, 
-            error: 'Explanation not found' 
+          return {
+            success: false,
+            error: 'Explanation not found'
           };
         }
 
@@ -652,15 +637,15 @@ class MainProcess {
         await this.saveExplanationsToFile();
 
         console.log('Explanation deleted successfully:', id);
-        
-        return { 
-          success: true 
+
+        return {
+          success: true
         };
       } catch (error) {
         console.error('Error deleting explanation:', error);
-        return { 
-          success: false, 
-          error: error instanceof Error ? error.message : 'Unknown error' 
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
         };
       }
     });
@@ -670,18 +655,18 @@ class MainProcess {
       try {
         const licenseInfo = this.licenseService.getLicenseInfo();
         const isFreeMode = LICENSING_CONFIG.mode === 'free';
-        
-        return { 
-          success: true, 
+
+        return {
+          success: true,
           licenseInfo,
           isFreeMode,
           config: LICENSING_CONFIG
         };
       } catch (error) {
         console.error('Error getting license info:', error);
-        return { 
-          success: false, 
-          error: error instanceof Error ? error.message : 'Unknown error' 
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
         };
       }
     });
@@ -691,16 +676,16 @@ class MainProcess {
       try {
         this.licenseService.startTrial();
         console.log('Trial started successfully');
-        
-        return { 
-          success: true, 
+
+        return {
+          success: true,
           licenseInfo: this.licenseService.getLicenseInfo()
         };
       } catch (error) {
         console.error('Error starting trial:', error);
-        return { 
-          success: false, 
-          error: error instanceof Error ? error.message : 'Unknown error' 
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
         };
       }
     });
@@ -709,28 +694,28 @@ class MainProcess {
     ipcMain.handle('translate-code', async (_, { code, detailLevel }) => {
       // Check if user is authenticated
       if (false) {
-        return { 
-          success: false, 
-          error: 'Authentication required. Please log in first.' 
+        return {
+          success: false,
+          error: 'Authentication required. Please log in first.'
         };
       }
-      
+
       try {
         console.log('Translation request received:', { codeLength: code.length, detailLevel });
-        
+
         // Detect language
         const language = await this.codeAnalysisService.detectLanguage(code);
         console.log(`Detected language: ${language}`);
-        
+
         // Generate explanation
         const explanation = await this.ollamaService.generateExplanation(code, language, detailLevel);
-        
+
         return { success: true, explanation, language };
       } catch (error) {
         console.error('Translation error:', error);
-        return { 
-          success: false, 
-          error: error instanceof Error ? error.message : 'Unknown error' 
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
         };
       }
     });
@@ -741,14 +726,14 @@ class MainProcess {
         // Open the website login page in an Electron window
         const loginUrl = WEBSITE_CONFIG.getLoginUrl();
         console.log('Opening authentication website in Electron window:', loginUrl);
-        
+
         // Create a new window for the website
         this.createWebsiteAuthWindow(loginUrl);
         return { success: true };
       } catch (error) {
-        return { 
-          success: false, 
-          error: error instanceof Error ? error.message : 'Unknown error' 
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
         };
       }
     });
@@ -757,32 +742,32 @@ class MainProcess {
     ipcMain.handle('auth-success', async (_, userData) => {
       try {
         console.log('Authentication successful:', userData);
-        
+
         // DON'T close the website auth window immediately - let user click continue button
         // The window will be closed when user clicks "Return to Application"
-        
+
         // Update the auth service with user data
         await authService.setUserAuthenticated(userData);
-        
+
         // Check for updates immediately after successful login
         try {
           const versionInfo = await authService.checkForUpdates();
           const wasForceLoggedOut = authService.wasUserForceLoggedOut();
-          
+
           // If update is available, show download prompt
           if (versionInfo.hasUpdate && versionInfo.updateAvailable) {
             console.log('Update detected after login:', versionInfo.updateAvailable);
-            
+
             // Show update dialog with appropriate message
             const { dialog } = require('electron');
             const title = wasForceLoggedOut ? 'New Update Required! 🚀' : 'Update Available! 🚀';
-            const message = wasForceLoggedOut 
+            const message = wasForceLoggedOut
               ? `A new version (v${versionInfo.updateAvailable.version}) has been released and requires your attention!`
               : `A new version (v${versionInfo.updateAvailable.version}) is available!`;
             const detail = wasForceLoggedOut
               ? `We've updated the app with important improvements:\n\n${versionInfo.updateAvailable.releaseNotes}\n\nPlease download the latest version to continue using all features.`
               : `${versionInfo.updateAvailable.releaseNotes}\n\nWould you like to download the update now?`;
-            
+
             const result = await dialog.showMessageBox(null, {
               type: 'info',
               title,
@@ -793,14 +778,14 @@ class MainProcess {
               cancelId: 1,
               icon: undefined // You can add an icon path here if you have one
             });
-            
+
             if (result.response === 0) {
               // User clicked "Download Update"
               const { shell } = require('electron');
               shell.openExternal(versionInfo.updateAvailable.downloadUrl);
               console.log('Opening download URL:', versionInfo.updateAvailable.downloadUrl);
             }
-            
+
             // Clear the force logout flag after showing the update prompt
             authService.clearForceLogoutFlag();
           } else if (wasForceLoggedOut) {
@@ -815,7 +800,7 @@ class MainProcess {
             authService.clearForceLogoutFlag();
           }
         }
-        
+
         // Notify the main window about authentication state change
         if (this.mainWindow && !this.mainWindow.isDestroyed()) {
           this.mainWindow.webContents.send('auth-state-changed', {
@@ -823,13 +808,13 @@ class MainProcess {
             user: authService.getUser()
           });
         }
-        
+
         return { success: true };
       } catch (error) {
         console.error('Error handling auth success:', error);
-        return { 
-          success: false, 
-          error: error instanceof Error ? error.message : 'Unknown error' 
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
         };
       }
     });
@@ -838,7 +823,7 @@ class MainProcess {
     ipcMain.handle('continue-to-application', async () => {
       try {
         console.log('User clicked continue to application');
-        
+
         // Close the website auth window
         if (this.websiteAuthWindow && !this.websiteAuthWindow.isDestroyed()) {
           console.log('Closing website auth window...');
@@ -846,27 +831,27 @@ class MainProcess {
           this.websiteAuthWindow = null;
           console.log('Website auth window closed successfully');
         }
-        
+
         // Now that user is authenticated, trigger the main app flow
         console.log('User authenticated, transitioning to main app...');
-        
+
         // Ensure main window is focused and visible
         if (this.mainWindow && !this.mainWindow.isDestroyed()) {
           console.log('Focusing main window...');
           this.mainWindow.focus();
           this.mainWindow.show();
         }
-        
+
         // Trigger the onboarding/explanation flow
         console.log('Creating explanation window...');
         this.checkAndShowOnboarding();
-        
+
         return { success: true };
       } catch (error) {
         console.error('Error handling continue to application:', error);
-        return { 
-          success: false, 
-          error: error instanceof Error ? error.message : 'Unknown error' 
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
         };
       }
     });
@@ -876,16 +861,16 @@ class MainProcess {
       try {
         const isAuthenticated = authService.isAuthenticated();
         const user = authService.getUser();
-        
-        return { 
-          success: true, 
-          isAuthenticated, 
-          user 
+
+        return {
+          success: true,
+          isAuthenticated,
+          user
         };
       } catch (error) {
-        return { 
-          success: false, 
-          error: error instanceof Error ? error.message : 'Unknown error' 
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
         };
       }
     });
@@ -897,9 +882,9 @@ class MainProcess {
         return { success: true, sessionInfo };
       } catch (error) {
         console.error('Error getting session info:', error);
-        return { 
-          success: false, 
-          error: error instanceof Error ? error.message : 'Unknown error' 
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
         };
       }
     });
@@ -911,9 +896,9 @@ class MainProcess {
         return { success: true };
       } catch (error) {
         console.error('Error extending session:', error);
-        return { 
-          success: false, 
-          error: error instanceof Error ? error.message : 'Unknown error' 
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
         };
       }
     });
@@ -925,9 +910,9 @@ class MainProcess {
         return { success: true, versionInfo };
       } catch (error) {
         console.error('Error checking for updates:', error);
-        return { 
-          success: false, 
-          error: error instanceof Error ? error.message : 'Unknown error' 
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
         };
       }
     });
@@ -939,9 +924,9 @@ class MainProcess {
         return { success: true, requiresReauth };
       } catch (error) {
         console.error('Error in force version check:', error);
-        return { 
-          success: false, 
-          error: error instanceof Error ? error.message : 'Unknown error' 
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
         };
       }
     });
@@ -950,13 +935,13 @@ class MainProcess {
     ipcMain.handle('auth-logout', async () => {
       try {
         await authService.logout();
-        
+
         // Close explanation window if open
         if (this.explanationWindow && !this.explanationWindow.isDestroyed()) {
           this.explanationWindow.close();
           this.explanationWindow = null;
         }
-        
+
         // Notify the main window about authentication state change
         if (this.mainWindow && !this.mainWindow.isDestroyed()) {
           this.mainWindow.webContents.send('auth-state-changed', {
@@ -964,19 +949,19 @@ class MainProcess {
             user: null
           });
         }
-        
+
         // Show logout notification
         this.showNotification(
-          'Logged Out', 
+          'Logged Out',
           'You have been logged out. Please log in again to continue.'
         );
-        
+
         return { success: true };
       } catch (error) {
         console.error('Error during logout:', error);
-        return { 
-          success: false, 
-          error: error instanceof Error ? error.message : 'Unknown error' 
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
         };
       }
     });
@@ -1030,9 +1015,9 @@ class MainProcess {
         return { success: true, status };
       } catch (error) {
         console.error('Error getting Ollama status:', error);
-        return { 
-          success: false, 
-          error: error instanceof Error ? error.message : 'Unknown error' 
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
         };
       }
     });
@@ -1042,21 +1027,21 @@ class MainProcess {
       try {
         console.log('Manual Ollama start requested');
         const started = await this.ollamaProcessService.startOllama();
-        
+
         if (started) {
           // Try to ensure model is available
           await this.ollamaProcessService.ensureModelAvailable('mistral:latest');
         }
-        
-        return { 
-          success: started, 
-          status: this.ollamaProcessService.getStatus() 
+
+        return {
+          success: started,
+          status: this.ollamaProcessService.getStatus()
         };
       } catch (error) {
         console.error('Error starting Ollama manually:', error);
-        return { 
-          success: false, 
-          error: error instanceof Error ? error.message : 'Unknown error' 
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
         };
       }
     });
@@ -1066,7 +1051,7 @@ class MainProcess {
     // Check clipboard every 500ms for changes
     this.clipboardWatcher = setInterval(() => {
       const currentContent = clipboard.readText();
-      
+
       // Only process if content has changed
       if (currentContent !== this.lastClipboardContent) {
         this.lastClipboardContent = currentContent;
@@ -1077,10 +1062,10 @@ class MainProcess {
 
   private updateLineCount(content: string): void {
     if (!this.mainWindow || this.mainWindow.isDestroyed()) return;
-    
+
     const lineCount = content.trim() ? content.split('\n').length : 0;
     const charCount = content.length;
-    
+
     // Send line count update to toolbar
     this.mainWindow.webContents.send('clipboard-update', {
       lineCount,
@@ -1120,7 +1105,7 @@ class MainProcess {
   private async startOllamaIfNeeded(): Promise<void> {
     try {
       console.log('Checking if Ollama needs to be started...');
-      
+
       // Check if Ollama is already running
       const isRunning = await this.ollamaProcessService.checkIfRunning();
       if (isRunning) {
@@ -1131,14 +1116,14 @@ class MainProcess {
       // Start Ollama
       console.log('Starting Ollama...');
       const started = await this.ollamaProcessService.startOllama();
-      
+
       if (started) {
         console.log('Ollama started successfully');
-        
+
         // Ensure the Mistral model is available
         console.log('Ensuring Mistral model is available...');
         const modelAvailable = await this.ollamaProcessService.ensureModelAvailable('mistral:latest');
-        
+
         if (modelAvailable) {
           console.log('Mistral model is ready');
         } else {
@@ -1162,7 +1147,7 @@ class MainProcess {
       } else {
         // Try to find backup files or old locations
         await this.migrateExplanationsData();
-        
+
         if (existsSync(this.explanationsFilePath)) {
           const data = await readFileAsync(this.explanationsFilePath, 'utf8');
           this.savedExplanations = JSON.parse(data);
@@ -1193,7 +1178,7 @@ class MainProcess {
           console.log(`Found explanations data at: ${path}`);
           const data = await readFileAsync(path, 'utf8');
           const explanations = JSON.parse(data);
-          
+
           // Save to the new location
           await writeFileAsync(this.explanationsFilePath, JSON.stringify(explanations, null, 2), 'utf8');
           console.log(`Migrated ${explanations.length} explanations to new location`);

@@ -1,4 +1,4 @@
-# i cant code
+# Code Explainer
 
 An AI-powered desktop application that provides intelligent code explanations using the Mistral language model. Select code from any application, press a global shortcut, and receive detailed explanations in a beautiful popup window.
 

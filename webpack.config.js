@@ -6,7 +6,8 @@ module.exports = {
   entry: {
     toolbar: './src/renderer/toolbar.tsx',
     explanation: './src/renderer/explanation.tsx',
-    panel: './src/renderer/panel.tsx'
+    panel: './src/renderer/panel.tsx',
+    notebook: './src/renderer/notebook.tsx'
   },
   output: {
     path: path.resolve(__dirname, 'dist'),
@@ -52,6 +53,11 @@ module.exports = {
       template: './src/renderer/panel.html',
       filename: 'panel.html',
       chunks: ['panel']
+    }),
+    new HtmlWebpackPlugin({
+      template: './src/renderer/notebook.html',
+      filename: 'notebook.html',
+      chunks: ['notebook']
     }),
   ],
   devtool: 'source-map',

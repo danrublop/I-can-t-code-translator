@@ -1,0 +1,62 @@
+/* Notebook window — the content surface. Light canvas per DESIGN.md (the notch HUD is the
+   dark hardware-mimicking element; the notebook is the readable content window). */
+
+:root {
+  --canvas: #ffffff;
+  --ink: #0a0a0a;
+  --muted: #6b6b66;
+  --hairline: #e4e4e2;
+  --surface-soft: #f5f5f4;
+  --accent: #b07d2b;
+  --sans: 'Inter', -apple-system, system-ui, sans-serif;
+  --mono: 'JetBrains Mono', 'SF Mono', menlo, monospace;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body, #root { height: 100%; }
+body { font-family: var(--sans); color: var(--ink); background: var(--canvas); -webkit-font-smoothing: antialiased; }
+
+.nb {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 40px 32px;
+}
+
+.nb-eyebrow {
+  font-family: var(--mono);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  display: flex;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.nb-prompt { font-size: 26px; font-weight: 540; letter-spacing: -0.02em; margin-bottom: 16px; }
+
+.nb-selection {
+  border-left: 3px solid var(--hairline);
+  padding: 8px 14px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-size: 14px;
+  white-space: pre-wrap;
+  max-height: 160px;
+  overflow: auto;
+  margin-bottom: 24px;
+  border-radius: 0 8px 8px 0;
+}
+
+.nb-answer { font-size: 16px; line-height: 1.6; white-space: pre-wrap; flex: 1; overflow: auto; }
+.nb-answer pre, .nb-answer code { font-family: var(--mono); font-size: 14px; }
+
+.nb-status { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-top: 16px; }
+.nb-status.streaming::after { content: '▍'; animation: blink 1s steps(2) infinite; }
+.nb-status.error { color: #b4321f; }
+@keyframes blink { 50% { opacity: 0; } }
+
+.nb-empty { color: var(--muted); display: flex; height: 100%; align-items: center; justify-content: center; text-align: center; }

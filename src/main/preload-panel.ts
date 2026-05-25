@@ -11,6 +11,10 @@ export interface PanelQueryRequest {
   selection?: string;
   sourceApp?: string;
   imagePath?: string;
+  /** Model the user picked in the panel. */
+  userSelectedModel?: string;
+  /** Auto-open the notebook when done (default true). */
+  autoOpen?: boolean;
 }
 
 export interface PanelQueryResult {
@@ -33,6 +37,10 @@ const api = {
   runQuery: (req: PanelQueryRequest): Promise<PanelQueryResult> => ipcRenderer.invoke('panel:run-query', req),
   /** Trigger interactive region screenshot; returns the saved path or null (cancel). */
   captureScreenshot: (): Promise<string | null> => ipcRenderer.invoke('panel:screenshot'),
+  /** List installed local models for the picker. */
+  listModels: (): Promise<string[]> => ipcRenderer.invoke('panel:models'),
+  /** Open the notebook window now (watch the answer stream in). */
+  openNotebook: () => ipcRenderer.send('open-notebook'),
   /** Full-text search the notebook. */
   search: (query: string) => ipcRenderer.invoke('panel:search', query) as Promise<Array<{ id: string; snippet: string; tags: string[] }>>,
   /** Collapse the panel back to the idle island. */

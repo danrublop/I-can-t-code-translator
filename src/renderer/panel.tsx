@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import ReactDOM from 'react-dom/client';
 import './panel.css';
 
-// Bridge exposed by preload-panel.ts.
 interface PanelQueryRequest {
   kind: 'text' | 'image';
   presetId?: string;
@@ -10,43 +9,43 @@ interface PanelQueryRequest {
   selection?: string;
   sourceApp?: string;
   imagePath?: string;
+  userSelectedModel?: string;
 }
 interface PanelQueryResult { ok: boolean; answer?: string; model?: string; entryId?: string; error?: string }
 interface PanelCaptured { selection: string; sourceApp?: string; empty: boolean }
 interface LlamasAPI {
   runQuery: (req: PanelQueryRequest) => Promise<PanelQueryResult>;
   captureScreenshot: () => Promise<string | null>;
-  search: (q: string) => Promise<Array<{ id: string; snippet: string; tags: string[] }>>;
+  listModels: () => Promise<string[]>;
+  openNotebook: () => void;
   close: () => void;
   setInteractive: (on: boolean) => void;
-  onToken: (cb: (partial: string) => void) => () => void;
   onCaptured: (cb: (data: PanelCaptured) => void) => () => void;
   onExpand: (cb: () => void) => () => void;
   onCollapse: (cb: () => void) => () => void;
 }
 declare global { interface Window { llamasAPI: LlamasAPI } }
 
-const PRESETS = [
+// Action shortcuts (preset id -> label). "Debug" = find-bugs, "Rephrase" = rewrite.
+const ACTIONS = [
   { id: 'explain', name: 'Explain' },
-  { id: 'summarize', name: 'Summarize' },
-  { id: 'rewrite', name: 'Rewrite' },
+  { id: 'find-bugs', name: 'Debug' },
   { id: 'translate', name: 'Translate' },
-  { id: 'find-bugs', name: 'Find bugs' },
+  { id: 'rewrite', name: 'Rephrase' },
+  { id: 'summarize', name: 'Summarize' },
 ];
 
-type Status = 'idle' | 'loading' | 'done' | 'error' | 'empty';
+type Status = 'idle' | 'running' | 'done' | 'error';
 
 function Panel() {
   const [expanded, setExpanded] = useState(false);
   const [selection, setSelection] = useState('');
   const [sourceApp, setSourceApp] = useState<string | undefined>();
   const [freeText, setFreeText] = useState('');
-  const [answer, setAnswer] = useState('');
-  const [model, setModel] = useState('mistral');
+  const [models, setModels] = useState<string[]>([]);
+  const [model, setModel] = useState('');
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState('');
-  const [activePreset, setActivePreset] = useState<string | undefined>();
-  const inputRef = useRef<HTMLInputElement>(null);
   const islandRef = useRef<HTMLDivElement>(null);
 
   const expandedRef = useRef(false);
@@ -71,16 +70,15 @@ function Panel() {
     setExpanded(false);
     setInteractive(false);
     pinnedRef.current = false;
+    setStatus('idle');
   }, [setInteractive]);
 
   const scheduleCollapse = useCallback(() => {
-    if (pinnedRef.current) return; // stay open once the user is actively using it
+    if (pinnedRef.current) return;
     if (collapseTimer.current) clearTimeout(collapseTimer.current);
     collapseTimer.current = setTimeout(collapseNow, 240);
   }, [collapseNow]);
 
-  // Collapsed + click-through: main forwards move events so we can detect a hover over the
-  // island bar (which spans the notch) and drop the panel down.
   useEffect(() => {
     function onMove(e: MouseEvent) {
       if (expandedRef.current) return;
@@ -94,45 +92,43 @@ function Panel() {
   }, [open]);
 
   useEffect(() => {
-    const offToken = window.llamasAPI.onToken((partial) => { setStatus('loading'); setAnswer(partial); });
+    window.llamasAPI.listModels().then((m) => { setModels(m); if (m.length && !model) setModel(m[0]); }).catch(() => {});
     const offCap = window.llamasAPI.onCaptured((data) => {
       setSelection(data.selection);
       setSourceApp(data.sourceApp);
-      setAnswer(''); setError(''); setActivePreset(undefined);
-      setStatus(data.empty ? 'empty' : 'idle');
+      setStatus('idle'); setError('');
     });
-    const offExpand = window.llamasAPI.onExpand(() => { pinnedRef.current = true; open(); setTimeout(() => inputRef.current?.focus(), 50); });
+    const offExpand = window.llamasAPI.onExpand(() => { pinnedRef.current = true; open(); });
     const offCollapse = window.llamasAPI.onCollapse(() => collapseNow());
-    return () => { offToken(); offCap(); offExpand(); offCollapse(); };
+    return () => { offCap(); offExpand(); offCollapse(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, collapseNow]);
 
-  async function run(req: PanelQueryRequest) {
+  async function fire(req: PanelQueryRequest) {
     pinnedRef.current = true;
-    setError(''); setAnswer(''); setStatus('loading');
-    const res = await window.llamasAPI.runQuery(req);
-    if (res.ok) { setAnswer(res.answer ?? ''); if (res.model) setModel(res.model); setStatus('done'); }
+    setError('');
+    setStatus('running');
+    const res = await window.llamasAPI.runQuery({ ...req, userSelectedModel: model || undefined });
+    if (res.ok) setStatus('done');
     else { setError(res.error ?? 'Something went wrong'); setStatus('error'); }
   }
 
-  function runPreset(presetId: string) {
-    setActivePreset(presetId);
-    run({ kind: 'text', presetId, selection, sourceApp, freeText: freeText.trim() || undefined });
-  }
-
-  function onAskKey(e: React.KeyboardEvent) {
-    if (e.key === 'Enter') run({ kind: 'text', presetId: activePreset, freeText: freeText.trim() || undefined, selection, sourceApp });
-    if (e.key === 'Escape') { collapseNow(); window.llamasAPI.close(); }
+  function runAction(presetId: string) {
+    fire({ kind: 'text', presetId, selection, sourceApp, freeText: freeText.trim() || undefined });
   }
 
   async function screenshot() {
     pinnedRef.current = true;
     const path = await window.llamasAPI.captureScreenshot();
-    if (path) run({ kind: 'image', presetId: 'explain', imagePath: path });
+    if (path) fire({ kind: 'image', presetId: 'explain', imagePath: path });
   }
 
   function cancelCollapse() {
     if (collapseTimer.current) { clearTimeout(collapseTimer.current); collapseTimer.current = null; }
   }
+
+  const hasSelection = selection.trim().length > 0;
+  const busy = status === 'running';
 
   return (
     <div className="stage">
@@ -142,57 +138,51 @@ function Panel() {
         onMouseEnter={() => { cancelCollapse(); if (!expandedRef.current) open(); }}
         onMouseLeave={scheduleCollapse}
       >
-        {/* Collapsed: dot at the left end, waveform at the right end (notch sits between) */}
+        {/* Collapsed: dot left, waveform right (notch between) */}
         <div className="collapsed">
           <span className="dot" />
           <span className="bars"><i /><i /><i /><i /></span>
         </div>
 
-        {/* Expanded panel */}
+        {/* Expanded: compact launcher */}
         <div className="panel">
-        <div className="ask-row">
-          <span className="model-chip">{model}</span>
+          <div className="hdr">
+            <select className="model-select" value={model} onChange={(e) => setModel(e.target.value)} title="Model">
+              {models.length === 0 && <option value="">default model</option>}
+              {models.map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+            <span className={`sel-indicator${hasSelection ? ' on' : ''}`}>
+              {hasSelection ? `Selected${sourceApp ? ` · ${sourceApp}` : ''}` : 'No selection'}
+            </span>
+            <span className="spacer" />
+            <button className="ghost-btn" onClick={screenshot} disabled={busy} title="Screenshot a region">⌖ Screenshot</button>
+          </div>
+
           <input
-            ref={inputRef}
             className="ask-input"
-            placeholder={status === 'empty' ? 'Select text or type a question' : 'Ask…'}
+            placeholder={hasSelection ? 'Add a follow-up (optional)…' : 'Type a question…'}
             value={freeText}
             onFocus={() => { pinnedRef.current = true; }}
             onChange={(e) => setFreeText(e.target.value)}
-            onKeyDown={onAskKey}
+            onKeyDown={(e) => { if (e.key === 'Enter') fire({ kind: 'text', selection, sourceApp, freeText: freeText.trim() || undefined }); if (e.key === 'Escape') { collapseNow(); window.llamasAPI.close(); } }}
           />
-          <span className="run-hint">↵</span>
-        </div>
 
-        <div className="pills">
-          {PRESETS.map((p) => (
-            <button key={p.id} className={`pill${activePreset === p.id ? ' active' : ''}`} onClick={() => runPreset(p.id)}>
-              {p.name}
-            </button>
-          ))}
-          <button className="pill" onClick={screenshot}>Screenshot</button>
-        </div>
-
-        {selection.trim() && (
-          <div className="captured">
-            <div className="quote">{selection.slice(0, 280)}</div>
-            {sourceApp && <span className="src">{sourceApp}</span>}
+          <div className="actions">
+            {ACTIONS.map((a) => (
+              <button key={a.id} className="action" disabled={busy} onClick={() => runAction(a.id)}>{a.name}</button>
+            ))}
           </div>
-        )}
 
-        <div className={`answer${status === 'idle' || status === 'empty' ? ' empty' : ''}`}>
-          {status === 'error' && <span className="error">{error}</span>}
-          {status === 'loading' && !answer && <span className="shimmer">Thinking…</span>}
-          {(status === 'loading' || status === 'done') && answer}
-          {status === 'idle' && 'Pick an action or ask a question.'}
-          {status === 'empty' && "Couldn't read a selection — paste or type your question above."}
-        </div>
-
-        <div className="footer">
-          {status === 'done' && <span className="saved">✓ saved to notebook</span>}
-          <span className="spacer" />
-          <button onClick={() => { collapseNow(); window.llamasAPI.close(); }}>esc close</button>
-        </div>
+          <div className="statusbar">
+            {status === 'running' && <div className="progress"><div className="bar" /></div>}
+            {status === 'done' && <span className="done">✓ saved to notebook</span>}
+            {status === 'error' && <span className="err">{error}</span>}
+            {status === 'idle' && <span className="hint">Pick an action or ask a question</span>}
+            <span className="spacer" />
+            {(status === 'running' || status === 'done') && (
+              <button className="open-btn" onClick={() => window.llamasAPI.openNotebook()}>Open notebook →</button>
+            )}
+          </div>
         </div>
       </div>
     </div>

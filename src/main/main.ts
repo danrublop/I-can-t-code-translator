@@ -37,6 +37,8 @@ class MainProcess {
   private notchController: NotchController | null = null;
   private captureProvider: CaptureProvider | null = null;
   private notebookStore: NotebookStore | null = null;
+  private llmClient: OllamaLlmClient | null = null;
+  private notebookWindow: BrowserWindow | null = null;
 
   async initialize(): Promise<void> {
     await app.whenReady();
@@ -87,8 +89,9 @@ class MainProcess {
       }
 
       this.captureProvider = createMacCaptureProvider();
+      this.llmClient = new OllamaLlmClient();
       this.notchController = new NotchController({
-        llm: new OllamaLlmClient(),
+        llm: this.llmClient,
         notebook: this.notebookStore,
         routerConfig: { defaultTextModel: DEFAULT_TEXT_MODEL, visionModel: VISION_MODEL },
         presets: BUILT_IN_PRESETS,
@@ -237,35 +240,92 @@ class MainProcess {
     this.handleNotchHotkey();
   }
 
+  // The notebook is the content window: a normal resizable window where answers stream in.
+  private createNotebookWindow(): void {
+    if (this.notebookWindow && !this.notebookWindow.isDestroyed()) return;
+    this.notebookWindow = new BrowserWindow({
+      width: 560,
+      height: 680,
+      show: false,
+      title: 'Llamas Remote — Notebook',
+      titleBarStyle: 'hiddenInset',
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        preload: join(__dirname, 'preload-notebook.js'),
+      },
+    });
+    this.notebookWindow.loadFile(join(__dirname, '..', 'notebook.html')).catch((e) => console.error('Failed to load notebook:', e));
+    this.notebookWindow.on('closed', () => { this.notebookWindow = null; });
+  }
+
+  private showNotebook(): void {
+    this.createNotebookWindow();
+    if (this.notebookWindow && !this.notebookWindow.isDestroyed()) {
+      if (process.platform === 'darwin') app.dock?.show();
+      this.notebookWindow.show();
+      this.notebookWindow.focus();
+    }
+  }
+
+  private sendNotebook(channel: string, payload?: unknown): void {
+    if (this.notebookWindow && !this.notebookWindow.isDestroyed()) {
+      this.notebookWindow.webContents.send(channel, payload);
+    }
+  }
+
   private setupNotchIpc(): void {
-    ipcMain.handle('panel:run-query', async (event, req: {
+    ipcMain.handle('panel:run-query', async (_event, req: {
       kind: 'text' | 'image';
       presetId?: string;
       freeText?: string;
       selection?: string;
       sourceApp?: string;
       imagePath?: string;
+      userSelectedModel?: string;
+      autoOpen?: boolean; // open the notebook automatically when done (default true)
     }) => {
       if (!this.notchController) return { ok: false, error: 'Notch controller not ready' };
-      const sender = event.sender;
+
+      // The answer streams into the notebook window (created hidden if not open). The panel
+      // only shows progress + an Open button.
+      this.createNotebookWindow();
+      const preset = req.presetId ? BUILT_IN_PRESETS.find((p) => p.id === req.presetId) : undefined;
+      const label = preset?.name ?? (req.freeText?.trim() || 'Ask');
+      const displayModel = req.userSelectedModel || (req.kind === 'image' ? VISION_MODEL : DEFAULT_TEXT_MODEL);
+      this.sendNotebook('notebook:start', { prompt: label, selection: req.selection ?? '', sourceApp: req.sourceApp, model: displayModel });
+
       try {
         const result = await this.notchController.runQuery({
           kind: req.kind,
           presetId: req.presetId,
           freeText: req.freeText,
+          userSelectedModel: req.userSelectedModel,
           capture:
             req.kind === 'text'
               ? { text: req.selection ?? '', sourceApp: req.sourceApp, via: 'clipboard' }
               : undefined,
           imagePath: req.imagePath,
-          onToken: (partial) => {
-            if (!sender.isDestroyed()) sender.send('panel:token', partial);
-          },
+          onToken: (partial) => this.sendNotebook('notebook:token', partial),
         });
+        this.sendNotebook('notebook:done', result.answer);
+        if (req.autoOpen !== false) this.showNotebook(); // auto-open when done
         return { ok: true, answer: result.answer, model: result.model, entryId: result.entry.id };
       } catch (err) {
-        return { ok: false, error: err instanceof Error ? err.message : 'Unknown error' };
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        this.sendNotebook('notebook:error', message);
+        if (req.autoOpen !== false) this.showNotebook();
+        return { ok: false, error: message };
       }
+    });
+
+    // Open the notebook window immediately (the panel's Open button) to watch streaming.
+    ipcMain.on('open-notebook', () => this.showNotebook());
+
+    // List installed Ollama models for the panel's model picker.
+    ipcMain.handle('panel:models', async () => {
+      if (!this.llmClient) return [];
+      return this.llmClient.listModels();
     });
 
     ipcMain.handle('panel:screenshot', async () => {

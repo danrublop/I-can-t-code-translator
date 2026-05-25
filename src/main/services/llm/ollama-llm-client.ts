@@ -13,6 +13,17 @@ const BASE_URL = 'http://127.0.0.1:11434';
 const TIMEOUT_MS = 300000;
 
 export class OllamaLlmClient implements LlmClient {
+  /** List locally installed model names (for the panel's model picker). Empty on failure. */
+  async listModels(): Promise<string[]> {
+    try {
+      const { data } = await axios.get(`${BASE_URL}/api/tags`, { timeout: 4000 });
+      const models = (data?.models ?? []) as Array<{ name: string }>;
+      return models.map((m) => m.name).filter(Boolean);
+    } catch {
+      return [];
+    }
+  }
+
   async generate(opts: {
     model: string;
     prompt: string;

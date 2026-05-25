@@ -99,7 +99,7 @@ class MainProcess {
 
     // Wait for the window to be ready before sending data
     this.mainWindow.webContents.on('did-finish-load', () => {
-      console.log('i cant code - Toolbar loaded and ready');
+      console.log('Llamas Remote - Toolbar loaded and ready');
 
       // Center the window after content loads
       if (this.mainWindow) {

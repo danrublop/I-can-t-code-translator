@@ -1,7 +1,7 @@
 {
-  "name": "i-cant-code",
+  "name": "llamas-remote",
   "version": "1.1.0",
-  "description": "AI-powered code explanations using Mistral language model",
+  "description": "Llamas Remote — query selected text and screenshots with local LLMs from the macOS notch; a private chat + notebook.",
   "main": "dist/main/main.js",
   "scripts": {
     "dev": "concurrently \"npm run watch:renderer\" \"npm run build:main\" \"wait-on dist/explanation.js && electron .\"",
@@ -31,13 +31,15 @@
   },
   "keywords": [
     "electron",
-    "ai",
-    "code",
-    "explanation",
-    "mistral",
-    "ollama"
+    "local-llm",
+    "ollama",
+    "notch",
+    "menubar",
+    "notebook",
+    "vision",
+    "privacy"
   ],
-  "author": "CodeLens Translator Team",
+  "author": "Llamas Remote",
   "license": "MIT",
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
@@ -70,8 +72,8 @@
     "sudo-prompt": "^9.2.1"
   },
   "build": {
-    "appId": "com.icantcode.app",
-    "productName": "i cant code",
+    "appId": "com.llamasremote.app",
+    "productName": "Llamas Remote",
     "directories": {
       "output": "build",
       "buildResources": "build-resources"
@@ -147,7 +149,7 @@
       "createStartMenuShortcut": true
     },
     "dmg": {
-      "title": "i cant code"
+      "title": "Llamas Remote"
     }
   }
 }

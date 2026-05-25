@@ -176,7 +176,7 @@ export class OllamaProcessService {
       console.log('Running installation command:', cmd);
       const sudo = require('sudo-prompt');
       const options = {
-        name: 'I Cant Code Translator',
+        name: 'Llamas Remote',
       };
 
       sudo.exec(cmd, options, (error: any, stdout: any, stderr: any) => {

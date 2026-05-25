@@ -43,8 +43,9 @@ body { font-family: var(--sans); color: var(--ink); -webkit-font-smoothing: anti
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  /* collapsed: hugs the notch — just enough room for the dot + waveform at each end */
-  width: calc(var(--notch-w) + 56px);
+  /* collapsed: wide enough that the dot + meter sit OUTSIDE the physical notch
+     (--notch-w is the assumed notch width; the extra px is clearance each side). */
+  width: calc(var(--notch-w) + 150px);
   height: var(--nub-h);
   transition: width 0.28s var(--ease), height 0.28s var(--ease);
   cursor: pointer;

@@ -159,10 +159,13 @@ function Panel() {
         onMouseEnter={() => { cancelCollapse(); if (!expandedRef.current) open(); }}
         onMouseLeave={scheduleCollapse}
       >
-        {/* Collapsed: dot left, waveform right (notch between) */}
+        {/* Collapsed: current model logo (left); right shows a "queued" dot when a
+            selection is captured, else the idle waveform (notch sits between). */}
         <div className="collapsed">
-          <span className="dot" />
-          <span className="bars"><i /><i /><i /><i /></span>
+          <span className="c-left">{model ? <BrandIcon model={model} size={16} /> : <span className="dot" />}</span>
+          <span className="c-right">
+            {hasSelection ? <span className="ready-dot" title="Selection ready" /> : <span className="bars"><i /><i /><i /><i /></span>}
+          </span>
         </div>
 
         {/* Expanded: compact launcher */}

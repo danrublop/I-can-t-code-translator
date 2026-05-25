@@ -52,9 +52,11 @@ body { font-family: var(--sans); color: var(--ink); -webkit-font-smoothing: anti
 .island.expanded { width: 560px; height: 212px; cursor: default; }
 
 /* Collapsed content: dot at the left end, waveform at the right end (notch sits between). */
-.collapsed { display: flex; align-items: center; justify-content: space-between; height: 100%; padding: 0 18px; }
+.collapsed { display: flex; align-items: center; justify-content: space-between; height: 100%; padding: 0 16px; }
 .island.expanded .collapsed { display: none; }
+.c-left, .c-right { display: flex; align-items: center; }
 .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--accent); }
+.ready-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 6px var(--accent); }
 .bars { display: flex; gap: 2px; align-items: flex-end; height: 12px; }
 .bars i { width: 2px; background: var(--muted); border-radius: 1px; }
 .bars i:nth-child(1) { height: 5px; }

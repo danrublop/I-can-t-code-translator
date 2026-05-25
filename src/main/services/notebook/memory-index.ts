@@ -14,6 +14,7 @@ interface Row {
   sourceApp?: string;
   model?: string;
   createdAt?: string;
+  imagePath?: string;
   pinned: boolean;
   mtimeMs: number;
   tombstoned: boolean;
@@ -44,6 +45,7 @@ export class MemoryNotebookIndex implements NotebookIndex {
       sourceApp: row.sourceApp ?? prev?.sourceApp,
       model: row.model ?? prev?.model,
       createdAt: row.createdAt ?? prev?.createdAt,
+      imagePath: row.imagePath ?? prev?.imagePath,
       pinned: row.pinned ?? prev?.pinned ?? false,
       mtimeMs: row.indexedMtimeMs,
       tombstoned: false,
@@ -75,6 +77,7 @@ export class MemoryNotebookIndex implements NotebookIndex {
         snippet: stripHtml(r.body).slice(0, 80),
         sourceApp: r.sourceApp,
         model: r.model,
+        imagePath: r.imagePath,
         pinned: r.pinned,
         createdAt: r.createdAt ?? '',
       }));
@@ -83,6 +86,11 @@ export class MemoryNotebookIndex implements NotebookIndex {
   getBody(id: string): string | null {
     const r = this.rows.get(id);
     return r && !r.tombstoned ? r.body : null;
+  }
+
+  getImagePath(id: string): string | null {
+    const r = this.rows.get(id);
+    return r && !r.tombstoned ? r.imagePath ?? null : null;
   }
 
   setTitle(id: string, title: string): void {

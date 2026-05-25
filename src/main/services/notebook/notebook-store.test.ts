@@ -38,6 +38,7 @@ class FakeIndex implements NotebookIndex {
     return [...this.rows.entries()].filter(([, r]) => !r.tombstoned).map(([id, r]) => ({ id, title: r.title ?? r.body.slice(0, 40), snippet: r.body.slice(0, 80), pinned: r.pinned, createdAt: '' }));
   }
   getBody(id: string): string | null { const r = this.rows.get(id); return r && !r.tombstoned ? r.body : null; }
+  getImagePath(): string | null { return null; }
   setTitle(id: string, title: string): void { const r = this.rows.get(id); if (r) r.title = title; }
   setPinned(id: string, pinned: boolean): void { const r = this.rows.get(id); if (r) r.pinned = pinned; }
   updateBody(id: string, body: string): void { const r = this.rows.get(id); if (r) r.body = body; }

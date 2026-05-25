@@ -37,20 +37,33 @@ export class NotebookStore {
   // so the file's frontmatter (model/source_kind/created_at) is never clobbered and the
   // index mtime stays in lockstep with disk (no spurious reindex on next launch).
   private persist(entry: NotebookEntry): void {
-    const path = this.files.write(entry);
+    // If a capture image was attached (temp path), copy it into the notebook and point the
+    // entry at the stored copy before writing.
+    let imagePath = entry.imagePath;
+    if (imagePath) {
+      try { imagePath = this.files.storeImage(entry.id, imagePath); } catch (e) { console.warn('storeImage failed:', e); }
+    }
+    const toWrite = { ...entry, imagePath };
+    const path = this.files.write(toWrite);
     const mtimeMs = statSync(path).mtimeMs;
     this.index.upsert({
-      id: entry.id,
-      title: entry.title,
-      body: entry.body,
-      tags: entry.tags,
-      model: entry.model,
-      sourceApp: entry.sourceApp,
-      sourceKind: entry.sourceKind,
-      pinned: entry.pinned,
-      createdAt: entry.createdAt,
+      id: toWrite.id,
+      title: toWrite.title,
+      body: toWrite.body,
+      tags: toWrite.tags,
+      model: toWrite.model,
+      sourceApp: toWrite.sourceApp,
+      sourceKind: toWrite.sourceKind,
+      pinned: toWrite.pinned,
+      createdAt: toWrite.createdAt,
+      imagePath,
       indexedMtimeMs: mtimeMs,
     });
+  }
+
+  /** Absolute path to a note's capture image, or null. */
+  getImagePath(id: string): string | null {
+    return this.index.getImagePath(id);
   }
 
   /** Notes for the sidebar (pinned first, newest next). */
@@ -115,6 +128,7 @@ export class NotebookStore {
             sourceApp: action.meta?.sourceApp,
             sourceKind: action.meta?.sourceKind,
             createdAt: action.meta?.createdAt,
+            imagePath: action.meta?.imagePath,
           });
           if (action.kind === 'insert') summary.inserted++;
           else if (action.kind === 'reindex') summary.reindexed++;

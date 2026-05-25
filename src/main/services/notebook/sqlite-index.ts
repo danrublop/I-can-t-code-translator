@@ -22,6 +22,7 @@ const CREATE_ENTRIES = `
     source_app TEXT,
     source_kind TEXT,
     created_at TEXT,
+    image_path TEXT,
     pinned INTEGER NOT NULL DEFAULT 0,
     indexed_mtime_ms REAL NOT NULL DEFAULT 0,
     tombstoned INTEGER NOT NULL DEFAULT 0
@@ -63,6 +64,7 @@ export class SqliteNotebookIndex implements NotebookIndex {
     ensure('source_app', 'source_app TEXT');
     ensure('source_kind', 'source_kind TEXT');
     ensure('created_at', 'created_at TEXT');
+    ensure('image_path', 'image_path TEXT');
     ensure('pinned', 'pinned INTEGER NOT NULL DEFAULT 0');
     ensure('indexed_mtime_ms', 'indexed_mtime_ms REAL NOT NULL DEFAULT 0');
     ensure('tombstoned', 'tombstoned INTEGER NOT NULL DEFAULT 0');
@@ -79,8 +81,8 @@ export class SqliteNotebookIndex implements NotebookIndex {
     const tx = this.db.transaction(() => {
       this.db
         .prepare(
-          `INSERT INTO entries (id, title, body, tags, model, source_app, source_kind, created_at, pinned, indexed_mtime_ms, tombstoned)
-           VALUES (@id, @title, @body, @tags, @model, @source_app, @source_kind, @created_at, COALESCE(@pinned, 0), @mtime, 0)
+          `INSERT INTO entries (id, title, body, tags, model, source_app, source_kind, created_at, image_path, pinned, indexed_mtime_ms, tombstoned)
+           VALUES (@id, @title, @body, @tags, @model, @source_app, @source_kind, @created_at, @image_path, COALESCE(@pinned, 0), @mtime, 0)
            ON CONFLICT(id) DO UPDATE SET
              body=@body, tags=@tags, indexed_mtime_ms=@mtime, tombstoned=0,
              title=COALESCE(@title, entries.title),
@@ -88,7 +90,8 @@ export class SqliteNotebookIndex implements NotebookIndex {
              model=COALESCE(@model, entries.model),
              source_app=COALESCE(@source_app, entries.source_app),
              source_kind=COALESCE(@source_kind, entries.source_kind),
-             created_at=COALESCE(@created_at, entries.created_at)`,
+             created_at=COALESCE(@created_at, entries.created_at),
+             image_path=COALESCE(@image_path, entries.image_path)`,
         )
         .run({
           id: row.id,
@@ -99,6 +102,7 @@ export class SqliteNotebookIndex implements NotebookIndex {
           source_app: row.sourceApp ?? null,
           source_kind: row.sourceKind ?? null,
           created_at: row.createdAt ?? null,
+          image_path: row.imagePath ?? null,
           pinned: row.pinned === undefined ? null : row.pinned ? 1 : 0,
           mtime: row.indexedMtimeMs,
         });
@@ -136,17 +140,18 @@ export class SqliteNotebookIndex implements NotebookIndex {
   list(): NoteSummary[] {
     const rows = this.db
       .prepare(
-        `SELECT id, title, body, source_app AS sourceApp, model, pinned, created_at AS createdAt
+        `SELECT id, title, body, source_app AS sourceApp, model, image_path AS imagePath, pinned, created_at AS createdAt
          FROM entries WHERE tombstoned = 0
          ORDER BY pinned DESC, created_at DESC LIMIT 500`,
       )
-      .all() as Array<{ id: string; title: string | null; body: string; sourceApp: string | null; model: string | null; pinned: number; createdAt: string | null }>;
+      .all() as Array<{ id: string; title: string | null; body: string; sourceApp: string | null; model: string | null; imagePath: string | null; pinned: number; createdAt: string | null }>;
     return rows.map((r) => ({
       id: r.id,
       title: deriveTitle(r.title, r.body),
       snippet: stripHtml(r.body).slice(0, 80),
       sourceApp: r.sourceApp ?? undefined,
       model: r.model ?? undefined,
+      imagePath: r.imagePath ?? undefined,
       pinned: r.pinned === 1,
       createdAt: r.createdAt ?? '',
     }));
@@ -155,6 +160,11 @@ export class SqliteNotebookIndex implements NotebookIndex {
   getBody(id: string): string | null {
     const row = this.db.prepare('SELECT body FROM entries WHERE id = ? AND tombstoned = 0').get(id) as { body: string } | undefined;
     return row?.body ?? null;
+  }
+
+  getImagePath(id: string): string | null {
+    const row = this.db.prepare('SELECT image_path AS p FROM entries WHERE id = ? AND tombstoned = 0').get(id) as { p: string | null } | undefined;
+    return row?.p ?? null;
   }
 
   setTitle(id: string, title: string): void {

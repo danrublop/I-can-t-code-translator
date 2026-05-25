@@ -38,6 +38,7 @@ export interface DiskMeta {
   sourceApp?: string;
   sourceKind?: 'text' | 'image';
   createdAt?: string;
+  imagePath?: string;
 }
 
 /** What the markdown file on disk currently contains. */

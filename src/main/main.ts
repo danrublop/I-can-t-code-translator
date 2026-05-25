@@ -1,7 +1,7 @@
 import { app, BrowserWindow, globalShortcut, ipcMain, Tray, Menu, nativeImage, systemPreferences, shell } from 'electron';
-import { join } from 'path';
+import { join, extname } from 'path';
 import { randomUUID } from 'crypto';
-import { rmSync, existsSync } from 'fs';
+import { rmSync, existsSync, readFileSync } from 'fs';
 import { OllamaProcessService } from './services/ollama-process.service';
 // Notch panel stack (notch/notebook pivot)
 import { createMacCaptureProvider } from './services/capture/mac-capture';
@@ -449,6 +449,17 @@ class MainProcess {
     ipcMain.handle('notebook:list', () => this.notebookStore?.list() ?? []);
     ipcMain.handle('notebook:search', (_e, query: string) => this.notebookStore?.search(query) ?? []);
     ipcMain.handle('notebook:get', (_e, id: string) => this.notebookStore?.getBody(id) ?? null);
+    ipcMain.handle('notebook:image', (_e, id: string) => {
+      const p = this.notebookStore?.getImagePath(id);
+      if (!p || !existsSync(p)) return null;
+      try {
+        const ext = extname(p).slice(1).toLowerCase() || 'png';
+        const mime = ext === 'jpg' ? 'jpeg' : ext;
+        return `data:image/${mime};base64,${readFileSync(p).toString('base64')}`;
+      } catch {
+        return null;
+      }
+    });
     ipcMain.handle('notebook:rename', (_e, id: string, title: string) => { this.notebookStore?.rename(id, title); });
     ipcMain.handle('notebook:pin', (_e, id: string, pinned: boolean) => { this.notebookStore?.setPinned(id, pinned); });
     ipcMain.handle('notebook:update-body', (_e, id: string, body: string) => { this.notebookStore?.updateBody(id, body); });

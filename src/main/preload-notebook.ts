@@ -14,6 +14,8 @@ export interface NoteSummary {
   title: string;
   snippet: string;
   sourceApp?: string;
+  model?: string;
+  imagePath?: string;
   pinned: boolean;
   createdAt: string;
 }
@@ -24,6 +26,8 @@ const api = {
   list: (): Promise<NoteSummary[]> => ipcRenderer.invoke('notebook:list'),
   search: (query: string): Promise<Array<{ id: string; snippet: string; tags: string[] }>> => ipcRenderer.invoke('notebook:search', query),
   getBody: (id: string): Promise<string | null> => ipcRenderer.invoke('notebook:get', id),
+  /** Data URL of the note's capture image, or null. */
+  getImage: (id: string): Promise<string | null> => ipcRenderer.invoke('notebook:image', id),
   rename: (id: string, title: string): Promise<void> => ipcRenderer.invoke('notebook:rename', id, title),
   setPinned: (id: string, pinned: boolean): Promise<void> => ipcRenderer.invoke('notebook:pin', id, pinned),
   updateBody: (id: string, body: string): Promise<void> => ipcRenderer.invoke('notebook:update-body', id, body),
@@ -62,3 +66,18 @@ const api = {
 
 contextBridge.exposeInMainWorld('notebookAPI', api);
 export type NotebookAPI = typeof api;
+
+// Settings now lives in the notebook's right pane (no separate window), so the
+// notebook window needs the same settings bridge the standalone settings window has.
+const settingsApi = {
+  get: (): Promise<{ openaiKeySet: boolean; anthropicKeySet: boolean }> => ipcRenderer.invoke('settings:get'),
+  setKey: (provider: 'openai' | 'anthropic', key: string): Promise<void> => ipcRenderer.invoke('settings:set-key', provider, key),
+  listModels: (): Promise<string[]> => ipcRenderer.invoke('panel:models'),
+  pullModel: (name: string): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('ollama:pull', name),
+  onPullProgress: (cb: (p: { name: string; status: string; percent: number }) => void) => {
+    const h = (_e: unknown, p: { name: string; status: string; percent: number }) => cb(p);
+    ipcRenderer.on('settings:pull-progress', h);
+    return () => ipcRenderer.removeListener('settings:pull-progress', h);
+  },
+};
+contextBridge.exposeInMainWorld('settingsAPI', settingsApi);

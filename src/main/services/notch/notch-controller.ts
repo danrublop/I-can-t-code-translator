@@ -105,6 +105,7 @@ export class NotchController {
       sourceApp: req.capture?.sourceApp ?? 'unknown',
       sourceKind: req.kind,
       createdAt: this.deps.now(),
+      imagePath: req.kind === 'image' ? req.imagePath : undefined,
     });
     this.deps.notebook.save(entry);
 

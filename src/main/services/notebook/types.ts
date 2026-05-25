@@ -20,6 +20,8 @@ export interface NotebookEntry {
   sourceKind: SourceKind;
   pinned: boolean;
   createdAt: string; // ISO 8601
+  /** Absolute path to a saved capture image (screenshot), if this note has one. */
+  imagePath?: string;
 }
 
 export interface SearchHit {
@@ -38,6 +40,7 @@ export interface NoteSummary {
   model?: string;
   pinned: boolean;
   createdAt: string;
+  imagePath?: string;
 }
 
 /** Row written to the index. Mirrors NotebookEntry minus the body-of-truth nuance. */
@@ -51,6 +54,7 @@ export interface IndexUpsert {
   sourceKind?: SourceKind;
   pinned?: boolean;
   createdAt?: string;
+  imagePath?: string;
   /** File mtime (ms) recorded so future reconciles can detect on-disk edits. */
   indexedMtimeMs: number;
 }
@@ -78,6 +82,8 @@ export interface NotebookIndex {
   setPinned(id: string, pinned: boolean): void;
   /** Update a note's body (in-app edit). */
   updateBody(id: string, body: string): void;
+  /** Absolute path to a note's capture image, or null. */
+  getImagePath(id: string): string | null;
   /** Release resources (close the DB handle). */
   close?(): void;
 }

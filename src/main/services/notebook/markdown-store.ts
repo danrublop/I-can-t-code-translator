@@ -15,8 +15,8 @@
 //   ---
 //   <markdown body>
 
-import { readdirSync, readFileSync, writeFileSync, statSync, existsSync, mkdirSync, rmSync } from 'fs';
-import { join } from 'path';
+import { readdirSync, readFileSync, writeFileSync, statSync, existsSync, mkdirSync, rmSync, copyFileSync } from 'fs';
+import { join, extname } from 'path';
 import type { DiskEntry } from './reconcile';
 import type { NotebookEntry, SourceKind } from './types';
 
@@ -48,6 +48,7 @@ export function serializeEntry(entry: NotebookEntry): string {
     `source_app: ${esc(entry.sourceApp)}`,
     `source_kind: ${entry.sourceKind}`,
     `pinned: ${entry.pinned ? 'true' : 'false'}`,
+    ...(entry.imagePath ? [`image: ${esc(entry.imagePath)}`] : []),
     `tags: [${tags}]`,
     '---',
     '',
@@ -82,6 +83,7 @@ export function parseEntry(text: string): ParsedFile | null {
     else if (key === 'source_app') e.sourceApp = unesc(val);
     else if (key === 'source_kind') e.sourceKind = val === 'image' ? 'image' : 'text';
     else if (key === 'created_at') e.createdAt = unesc(val);
+    else if (key === 'image') e.imagePath = unesc(val);
     else if (key === 'pinned') e.pinned = val === 'true';
     else if (key === 'tags') {
       const inner = val.replace(/^\[/, '').replace(/\]$/, '').trim();
@@ -115,6 +117,17 @@ export class MarkdownStore {
     if (existsSync(path)) rmSync(path);
   }
 
+  /** Copy a capture image into the notebook's images/ dir, keyed by entry id. Returns the
+      stored absolute path (or the source unchanged if it's already inside images/). */
+  storeImage(id: string, srcPath: string): string {
+    const imagesDir = join(this.dir, 'images');
+    if (srcPath.startsWith(imagesDir)) return srcPath; // already stored
+    if (!existsSync(imagesDir)) mkdirSync(imagesDir, { recursive: true });
+    const dest = join(imagesDir, `${id}${extname(srcPath) || '.png'}`);
+    copyFileSync(srcPath, dest);
+    return dest;
+  }
+
   /** Read one entry's raw parsed content, or null if absent/malformed. */
   read(id: string): ParsedFile | null {
     const path = this.pathFor(id);
@@ -142,6 +155,7 @@ export class MarkdownStore {
           sourceApp: parsed.sourceApp || undefined,
           sourceKind: parsed.sourceKind,
           createdAt: parsed.createdAt || undefined,
+          imagePath: parsed.imagePath || undefined,
         },
       });
     }

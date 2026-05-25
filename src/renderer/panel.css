@@ -1,0 +1,157 @@
+/* Notch panel — adapts the Llamas Remote DESIGN.md to the small command-bar form factor.
+   Light canvas surface + hairline border (no translucent dark), pill actions, Inter for UI
+   and JetBrains Mono for code. display-xl headlines are reserved for the full window. */
+
+:root {
+  --primary: #0a0a0a;        /* colors.primary */
+  --canvas: #ffffff;          /* colors.canvas */
+  --ink: #0a0a0a;             /* colors.ink */
+  --surface-soft: #f5f5f4;    /* colors.surface-soft */
+  --hairline: #e4e4e2;        /* colors.hairline */
+  --hairline-soft: #efefed;
+  --muted: #6b6b66;
+  --radius-pill: 50px;
+  --radius-md: 8px;
+  --radius-lg: 16px;
+  --space-xs: 8px;
+  --space-sm: 12px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --sans: 'Inter', -apple-system, system-ui, sans-serif;
+  --mono: 'JetBrains Mono', 'SF Mono', menlo, monospace;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body, #root { height: 100%; }
+
+body {
+  font-family: var(--sans);
+  color: var(--ink);
+  background: transparent;            /* window is transparent; the card draws the surface */
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--canvas);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+/* Input row: model chip + ask field + run hint */
+.ask-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--hairline-soft);
+}
+.model-chip {
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  background: var(--surface-soft);
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+}
+.ask-input {
+  flex: 1;
+  border: none;
+  outline: none;
+  font-family: var(--sans);
+  font-size: 15px;
+  color: var(--ink);
+  background: transparent;
+}
+.run-hint { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+
+/* Preset pills */
+.pills {
+  display: flex;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--hairline-soft);
+}
+.pill {
+  font-size: 13px;
+  font-weight: 480;
+  padding: 6px 14px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--hairline);
+  background: var(--canvas);
+  color: var(--ink);
+  cursor: pointer;
+}
+.pill:hover { background: var(--surface-soft); }
+.pill.active { background: var(--primary); color: var(--canvas); border-color: var(--primary); }
+
+/* Captured selection */
+.captured {
+  display: flex;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--hairline-soft);
+  color: var(--muted);
+  font-size: 13px;
+}
+.captured .quote {
+  border-left: 2px solid var(--hairline);
+  padding-left: var(--space-sm);
+  max-height: 3.6em;
+  overflow: hidden;
+  flex: 1;
+  white-space: pre-wrap;
+}
+.captured .src {
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  align-self: flex-start;
+  white-space: nowrap;
+}
+
+/* Answer area */
+.answer {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-md);
+  font-size: 15px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.answer pre, .answer code { font-family: var(--mono); font-size: 13px; }
+.answer.empty { color: var(--muted); display: flex; align-items: center; justify-content: center; text-align: center; }
+.shimmer { color: var(--muted); }
+
+/* Footer */
+.footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-xs) var(--space-md);
+  border-top: 1px solid var(--hairline-soft);
+  font-size: 12px;
+  color: var(--muted);
+}
+.footer .saved { color: #2f8f4e; }
+.footer button {
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.footer .spacer { flex: 1; }
+
+.error { color: #b4321f; }

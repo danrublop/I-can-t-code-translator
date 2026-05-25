@@ -5,6 +5,18 @@ import { OllamaProcessService } from './services/ollama-process.service';
 import { CodeAnalysisService } from './services/code-analysis.service';
 import { writeFile, readFile, existsSync, mkdirSync } from 'fs';
 import { promisify } from 'util';
+import { randomUUID } from 'crypto';
+// Notch panel stack (notch/notebook pivot)
+import { createMacCaptureProvider } from './services/capture/mac-capture';
+import type { CaptureProvider } from './services/capture/capture';
+import { captureRegion } from './services/vision/screenshot';
+import { NotchController } from './services/notch/notch-controller';
+import { OllamaLlmClient } from './services/llm/ollama-llm-client';
+import { MarkdownStore } from './services/notebook/markdown-store';
+import { NotebookStore } from './services/notebook/notebook-store';
+import { MemoryNotebookIndex } from './services/notebook/memory-index';
+import type { NotebookIndex } from './services/notebook/types';
+import { BUILT_IN_PRESETS } from './services/presets/presets';
 
 // Promisify file operations
 const writeFileAsync = promisify(writeFile);
@@ -21,6 +33,13 @@ class MainProcess {
   private lastClipboardContent = '';
   private savedExplanations: any[] = []; // In-memory storage for saved explanations
   private explanationsFilePath: string;
+  // Notch panel stack
+  private notchPanel: BrowserWindow | null = null;
+  private notchController: NotchController | null = null;
+  private captureProvider: CaptureProvider | null = null;
+  private notebookStore: NotebookStore | null = null;
+  private notchReady = false;
+  private pendingCaptured: { selection: string; sourceApp?: string; empty: boolean } | null = null;
 
   constructor() {
     this.ollamaService = new OllamaService();
@@ -46,6 +65,9 @@ class MainProcess {
     // Load existing explanations from file
     await this.loadExplanationsFromFile();
 
+    // Wire the notch panel stack (capture + controller + notebook)
+    this.setupNotch();
+
     // Create the main toolbar window
     this.createMainWindow();
 
@@ -54,6 +76,7 @@ class MainProcess {
 
     // Set up IPC handlers
     this.setupIpcHandlers();
+    this.setupNotchIpc();
 
     // Handle app lifecycle
     this.handleAppLifecycle();
@@ -180,6 +203,178 @@ class MainProcess {
     });
   }
 
+  // ── Notch panel stack ───────────────────────────────────────────────────
+  //
+  //   hotkey ─▶ capture selection ─▶ show panel ─▶ panel runs query via IPC
+  //                                                   │
+  //                          NotchController ─▶ Ollama ─▶ stream tokens ─▶ panel
+  //                                  └─▶ NotebookStore (markdown + index)
+  //
+  private setupNotch(): void {
+    try {
+      const userData = app.getPath('userData');
+      const files = new MarkdownStore(join(userData, 'notebook'));
+
+      let index: NotebookIndex;
+      try {
+        // Lazy require: if better-sqlite3 isn't rebuilt for the Electron ABI yet, fall
+        // back to an in-memory index so the app still launches and works this session.
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { SqliteNotebookIndex } = require('./services/notebook/sqlite-index');
+        index = new SqliteNotebookIndex(join(userData, 'notebook.db'));
+      } catch (err) {
+        console.warn('SQLite index unavailable (run `npx electron-builder install-app-deps`); using in-memory index.', err);
+        index = new MemoryNotebookIndex();
+      }
+
+      this.notebookStore = new NotebookStore(files, index);
+      try {
+        this.notebookStore.syncFromDisk();
+      } catch (e) {
+        console.warn('notebook syncFromDisk failed:', e);
+      }
+
+      this.captureProvider = createMacCaptureProvider();
+      this.notchController = new NotchController({
+        llm: new OllamaLlmClient(),
+        notebook: this.notebookStore,
+        routerConfig: { defaultTextModel: 'mistral:latest', visionModel: 'llava:latest' },
+        presets: BUILT_IN_PRESETS,
+        newId: () => randomUUID(),
+        now: () => new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error('Failed to set up notch stack:', err);
+    }
+  }
+
+  private createNotchPanel(): void {
+    if (this.notchPanel && !this.notchPanel.isDestroyed()) return;
+    const { screen } = require('electron');
+    const width = 640;
+    const height = 460;
+    const { width: screenWidth } = screen.getPrimaryDisplay().workAreaSize;
+
+    this.notchReady = false;
+    this.notchPanel = new BrowserWindow({
+      width,
+      height,
+      x: Math.round((screenWidth - width) / 2), // centered under the notch
+      y: 0,
+      frame: false,
+      transparent: true,
+      resizable: false,
+      alwaysOnTop: true,
+      show: false,
+      skipTaskbar: true,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        preload: join(__dirname, 'preload-panel.js'),
+      },
+    });
+
+    this.notchPanel.loadFile(join(__dirname, '..', 'panel.html')).catch((e) => console.error('Failed to load panel:', e));
+
+    this.notchPanel.webContents.on('did-finish-load', () => {
+      this.notchReady = true;
+      if (this.pendingCaptured && this.notchPanel && !this.notchPanel.isDestroyed()) {
+        this.notchPanel.webContents.send('panel:captured', this.pendingCaptured);
+        this.pendingCaptured = null;
+      }
+    });
+    // Hide when the user clicks away — keeps it Spotlight-like.
+    this.notchPanel.on('blur', () => {
+      if (this.notchPanel && !this.notchPanel.isDestroyed()) this.notchPanel.hide();
+    });
+    this.notchPanel.on('closed', () => {
+      this.notchPanel = null;
+      this.notchReady = false;
+    });
+  }
+
+  private async handleNotchHotkey(): Promise<void> {
+    this.createNotchPanel();
+    const panel = this.notchPanel;
+    if (!panel) return;
+
+    // Capture the current selection before showing our panel (so focus is still on the
+    // source app). On-demand only — we never monitor selections in the background.
+    let captured = { selection: '', sourceApp: undefined as string | undefined, empty: true };
+    try {
+      if (this.captureProvider) {
+        const res = await this.captureProvider.captureSelection();
+        captured = { selection: res.text, sourceApp: res.sourceApp, empty: res.text.trim().length === 0 };
+      }
+    } catch (e) {
+      console.warn('Selection capture failed:', e);
+    }
+
+    if (this.notchReady && !panel.isDestroyed()) {
+      panel.webContents.send('panel:captured', captured);
+    } else {
+      this.pendingCaptured = captured; // flushed on did-finish-load
+    }
+
+    panel.show();
+    panel.focus();
+  }
+
+  private setupNotchIpc(): void {
+    ipcMain.handle('panel:run-query', async (event, req: {
+      kind: 'text' | 'image';
+      presetId?: string;
+      freeText?: string;
+      selection?: string;
+      sourceApp?: string;
+      imagePath?: string;
+    }) => {
+      if (!this.notchController) return { ok: false, error: 'Notch controller not ready' };
+      const sender = event.sender;
+      try {
+        const result = await this.notchController.runQuery({
+          kind: req.kind,
+          presetId: req.presetId,
+          freeText: req.freeText,
+          capture:
+            req.kind === 'text'
+              ? { text: req.selection ?? '', sourceApp: req.sourceApp, via: 'clipboard' }
+              : undefined,
+          imagePath: req.imagePath,
+          onToken: (partial) => {
+            if (!sender.isDestroyed()) sender.send('panel:token', partial);
+          },
+        });
+        return { ok: true, answer: result.answer, model: result.model, entryId: result.entry.id };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : 'Unknown error' };
+      }
+    });
+
+    ipcMain.handle('panel:screenshot', async () => {
+      try {
+        const { path } = await captureRegion();
+        return path;
+      } catch (e) {
+        console.error('Screenshot failed:', e);
+        return null;
+      }
+    });
+
+    ipcMain.handle('panel:search', (_event, query: string) => {
+      if (!this.notebookStore) return [];
+      try {
+        return this.notebookStore.search(query);
+      } catch {
+        return [];
+      }
+    });
+
+    ipcMain.on('panel:close', () => {
+      if (this.notchPanel && !this.notchPanel.isDestroyed()) this.notchPanel.hide();
+    });
+  }
+
   private registerGlobalShortcuts(): void {
     // Translation shortcut: Cmd+Shift+T (Mac) / Ctrl+Shift+T (Windows/Linux)
     const translationShortcut = process.platform === 'darwin' ? 'Cmd+Shift+T' : 'Ctrl+Shift+T';
@@ -195,7 +390,14 @@ class MainProcess {
       this.toggleToolbar();
     });
 
-    console.log(`Global shortcuts registered: ${translationShortcut}, ${toolbarShortcut}`);
+    // Notch panel shortcut: Cmd+Shift+Space (Mac) / Ctrl+Shift+Space — the primary
+    // capture->ask loop for the pivot.
+    const notchShortcut = process.platform === 'darwin' ? 'Cmd+Shift+Space' : 'Ctrl+Shift+Space';
+    globalShortcut.register(notchShortcut, () => {
+      this.handleNotchHotkey();
+    });
+
+    console.log(`Global shortcuts registered: ${translationShortcut}, ${toolbarShortcut}, ${notchShortcut}`);
   }
 
   private async handleTranslationShortcut(): Promise<void> {

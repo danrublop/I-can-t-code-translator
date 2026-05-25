@@ -210,9 +210,7 @@ function Panel() {
         <div className="collapsed">
           <span className="c-left">{model ? <BrandIcon model={model} size={16} /> : <span className="dot" />}</span>
           <span className="c-right">
-            {hasSelection
-              ? <CircleMeter pct={ctxPct} />
-              : <span className="bars"><i /><i /><i /><i /></span>}
+            <CircleMeter pct={ctxPct} />
           </span>
         </div>
 

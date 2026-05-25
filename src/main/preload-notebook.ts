@@ -20,6 +20,7 @@ export interface NoteSummary {
 
 const api = {
   // Notes-app operations
+  openSettings: () => ipcRenderer.send('open-settings'),
   list: (): Promise<NoteSummary[]> => ipcRenderer.invoke('notebook:list'),
   search: (query: string): Promise<Array<{ id: string; snippet: string; tags: string[] }>> => ipcRenderer.invoke('notebook:search', query),
   getBody: (id: string): Promise<string | null> => ipcRenderer.invoke('notebook:get', id),

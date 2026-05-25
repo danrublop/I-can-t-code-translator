@@ -133,16 +133,17 @@ body { font-family: var(--sans); color: var(--ink); -webkit-font-smoothing: anti
 .icon-btn:hover:not(:disabled) { background: var(--surface-2); }
 .icon-btn:disabled { opacity: 0.5; cursor: default; }
 
-.actions-row { display: flex; align-items: stretch; gap: 8px; }
+.actions-row { display: flex; align-items: stretch; gap: 6px; }
 .actions-wrap { position: relative; flex: 1; min-width: 0; }
-.actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.actions { display: flex; gap: 6px; flex-wrap: nowrap; }
 .action {
-  flex: 1 1 auto; min-width: 72px; font-size: 12px; font-weight: 500; padding: 8px 10px; border-radius: 10px;
+  flex: 1 1 0; min-width: 0; font-size: 12px; font-weight: 500; padding: 8px 6px; border-radius: 10px;
   border: 1px solid var(--hairline); background: var(--surface); color: var(--ink); cursor: pointer; white-space: nowrap;
 }
 .action:hover:not(:disabled) { background: var(--surface-2); }
 .action:disabled { opacity: 0.5; cursor: default; }
-.action.type-btn { flex: 2 1 120px; color: var(--muted); }
+.action.ask-btn { background: var(--ink); color: #000; border-color: var(--ink); font-weight: 600; }
+.action.ask-btn:hover:not(:disabled) { background: #e8e8ea; }
 
 /* Type input slides over the action buttons (reveals right-to-left). */
 .type-overlay {

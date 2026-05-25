@@ -29,9 +29,8 @@ interface LlamasAPI {
 }
 declare global { interface Window { llamasAPI: LlamasAPI } }
 
-// Action shortcuts (preset id -> label). "Debug" = find-bugs, "Rephrase" = rewrite.
+// Preset action shortcuts (preset id -> label). "Ask" (free-form) is rendered separately.
 const ACTIONS = [
-  { id: 'explain', name: 'Explain' },
   { id: 'find-bugs', name: 'Debug' },
   { id: 'translate', name: 'Translate' },
   { id: 'rewrite', name: 'Rephrase' },
@@ -219,10 +218,6 @@ function Panel() {
         {/* Expanded: compact launcher */}
         <div className="panel">
           <div className="hdr">
-            <span className={`sel-indicator${hasSelection ? ' on' : ''}`}>
-              {hasSelection ? `Selected${sourceApp ? ` · ${sourceApp}` : ''}` : 'No selection'}
-            </span>
-            <span className="spacer" />
             <div className="model-picker" ref={modelPickerRef}>
               <button className="model-btn" onClick={() => setModelOpen((v) => !v)} title="Model">
                 {model && <BrandIcon model={model} size={15} />}
@@ -245,23 +240,24 @@ function Panel() {
                 </div>
               )}
             </div>
+            <span className="spacer" />
             <button className="ghost-btn icon-only" onClick={() => window.llamasAPI.openNotebook()} title="Open notebook">▤</button>
-            <button className="ghost-btn icon-only" onClick={() => window.llamasAPI.openSettings()} title="Settings">⚙</button>
+            <CircleMeter pct={ctxPct} />
           </div>
 
           <div className="actions-row">
             <div className="actions-wrap">
               <div className="actions">
-                {ACTIONS.map((a) => (
-                  <button key={a.id} className="action" disabled={busy} onClick={() => runAction(a.id)}>{a.name}</button>
-                ))}
                 <button
-                  className="action type-btn"
+                  className="action ask-btn"
                   disabled={busy}
                   onClick={() => { setTyping(true); pinnedRef.current = true; setTimeout(() => typeInputRef.current?.focus(), 60); }}
                 >
-                  Type a question
+                  Ask
                 </button>
+                {ACTIONS.map((a) => (
+                  <button key={a.id} className="action" disabled={busy} onClick={() => runAction(a.id)}>{a.name}</button>
+                ))}
               </div>
               {/* Slides open over the buttons when "Type a question" is clicked. */}
               <div className={`type-overlay${typing ? ' open' : ''}`}>
@@ -286,7 +282,6 @@ function Panel() {
             {status === 'running' && <div className="progress"><div className="bar" /></div>}
             {status === 'done' && <span className="done">✓ saved to notebook</span>}
             {status === 'error' && <span className="err">{error}</span>}
-            {status === 'idle' && <span className="hint">Pick an action or ask a question</span>}
             <span className="spacer" />
             {(status === 'running' || status === 'done') && (
               <button className="open-btn" onClick={() => window.llamasAPI.openNotebook()}>Open notebook →</button>

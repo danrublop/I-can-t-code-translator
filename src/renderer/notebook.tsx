@@ -7,6 +7,7 @@ import './notebook.css';
 interface NotebookMeta { prompt: string; selection: string; sourceApp?: string; model: string }
 interface NoteSummary { id: string; title: string; snippet: string; sourceApp?: string; model?: string; pinned: boolean; createdAt: string }
 interface NotebookAPI {
+  openSettings: () => void;
   list: () => Promise<NoteSummary[]>;
   search: (query: string) => Promise<Array<{ id: string; snippet: string; tags: string[] }>>;
   getBody: (id: string) => Promise<string | null>;
@@ -144,6 +145,8 @@ function Notebook() {
         <div className="sidebar-top" />
         <div className="sidebar-head">
           <h2>Notes</h2>
+          <span style={{ flex: 1 }} />
+          <button className="new-btn" onClick={() => window.notebookAPI.openSettings()} title="Settings">⚙</button>
           <button className="new-btn" onClick={newNote} title="New note">+</button>
         </div>
         <input className="search-input" placeholder="Search notes…" value={query} onChange={(e) => onSearch(e.target.value)} />

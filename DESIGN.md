@@ -3,6 +3,12 @@
 This design system governs the **desktop app itself** (the macOS notch capture panel and the
 chat/notebook window). It supersedes the earlier "calm native utility" direction.
 
+**Exception — the notch HUD is dark (hardware-mimicking).** The Dynamic-Island notch panel
+is intentionally BLACK and fused to the physical notch (square top, rounded bottom), like
+NotchNook / iPhone Dynamic Island. It imitates hardware, so it does NOT follow the light
+canvas system below. The light Figma system governs the content windows (the future
+notebook window), not the notch HUD.
+
 **Adaptation notes (this is a marketing-derived system applied to an app — reconcile these):**
 - **No dark mode is documented** (see Known Gaps). The app leans on a light `{colors.canvas}`
   surface. The notch panel becomes a white/canvas command surface with a `{colors.hairline}`

@@ -35,8 +35,10 @@ const api = {
   captureScreenshot: (): Promise<string | null> => ipcRenderer.invoke('panel:screenshot'),
   /** Full-text search the notebook. */
   search: (query: string) => ipcRenderer.invoke('panel:search', query) as Promise<Array<{ id: string; snippet: string; tags: string[] }>>,
-  /** Hide the panel. */
+  /** Collapse the panel back to the idle island. */
   close: () => ipcRenderer.send('panel:close'),
+  /** Toggle whether the window captures mouse events (true) or is click-through (false). */
+  setInteractive: (on: boolean) => ipcRenderer.send('panel:set-interactive', on),
 
   /** Streaming answer tokens (cumulative string). */
   onToken: (cb: (partial: string) => void) => {
@@ -49,6 +51,18 @@ const api = {
     const h = (_e: unknown, data: PanelCaptured) => cb(data);
     ipcRenderer.on('panel:captured', h);
     return () => ipcRenderer.removeListener('panel:captured', h);
+  },
+  /** Main asks the panel to expand (hotkey/tray). */
+  onExpand: (cb: () => void) => {
+    const h = () => cb();
+    ipcRenderer.on('panel:expand', h);
+    return () => ipcRenderer.removeListener('panel:expand', h);
+  },
+  /** Main asks the panel to collapse to the idle island (blur). */
+  onCollapse: (cb: () => void) => {
+    const h = () => cb();
+    ipcRenderer.on('panel:collapse', h);
+    return () => ipcRenderer.removeListener('panel:collapse', h);
   },
 };
 

@@ -100,46 +100,65 @@ class MainProcess {
     }
   }
 
+  // Dynamic-Island style: a transparent canvas pinned to the top-center, the same width
+  // as the menu bar around the notch. The renderer draws a black island fused to the
+  // notch (square top, round bottom) that expands on hover/hotkey. The window stays
+  // click-through (forwarding move events so :hover works) until the pointer is over the
+  // island or the panel is expanded — so it never blocks the screen underneath.
   private createNotchPanel(): void {
     if (this.notchPanel && !this.notchPanel.isDestroyed()) return;
     const { screen } = require('electron');
-    const width = 640;
-    const height = 460;
-    const { width: screenWidth } = screen.getPrimaryDisplay().workAreaSize;
+    const display = screen.getPrimaryDisplay();
+    const width = Math.min(820, display.workAreaSize.width);
+    const height = 540;
+    const x = Math.round((display.bounds.width - width) / 2); // centered on the physical display
 
     this.notchReady = false;
     this.notchPanel = new BrowserWindow({
       width,
       height,
-      x: Math.round((screenWidth - width) / 2), // centered under the notch
-      y: 0,
+      x,
+      y: 0, // flush with the very top so the island fuses with the notch
       frame: false,
       transparent: true,
+      hasShadow: false,
       resizable: false,
+      movable: false,
       alwaysOnTop: true,
       show: false,
       skipTaskbar: true,
+      // Float above full-screen apps and the menu bar.
+      type: process.platform === 'darwin' ? 'panel' : undefined,
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
         preload: join(__dirname, 'preload-panel.js'),
       },
     });
+    this.notchPanel.setAlwaysOnTop(true, 'screen-saver');
+    if (process.platform === 'darwin') {
+      this.notchPanel.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    }
 
     this.notchPanel.loadFile(join(__dirname, '..', 'panel.html')).catch((e) => console.error('Failed to load panel:', e));
 
     this.notchPanel.webContents.on('did-finish-load', () => {
       this.notchReady = true;
+      // Idle: click-through, but forward move events so the renderer can detect hover.
+      this.notchPanel?.setIgnoreMouseEvents(true, { forward: true });
       if (this.pendingCaptured && this.notchPanel && !this.notchPanel.isDestroyed()) {
         this.notchPanel.webContents.send('panel:captured', this.pendingCaptured);
         this.pendingCaptured = null;
       }
     });
 
-    // Hide on blur (Spotlight-like) — but NOT during a screenshot, whose overlay steals focus.
+    // On blur, collapse back to the island and go click-through (unless mid-screenshot).
     this.notchPanel.on('blur', () => {
       if (this.screenshotInFlight) return;
-      if (this.notchPanel && !this.notchPanel.isDestroyed()) this.notchPanel.hide();
+      if (this.notchPanel && !this.notchPanel.isDestroyed()) {
+        this.notchPanel.webContents.send('panel:collapse');
+        this.notchPanel.setIgnoreMouseEvents(true, { forward: true });
+      }
     });
     this.notchPanel.on('closed', () => {
       this.notchPanel = null;
@@ -166,10 +185,13 @@ class MainProcess {
 
     if (this.notchReady && !panel.isDestroyed()) {
       panel.webContents.send('panel:captured', captured);
+      panel.webContents.send('panel:expand');
     } else {
       this.pendingCaptured = captured; // flushed on did-finish-load
     }
 
+    // Becoming interactive so the expanded panel can take input.
+    panel.setIgnoreMouseEvents(false);
     panel.show();
     panel.focus();
   }
@@ -194,10 +216,7 @@ class MainProcess {
   }
 
   private toggleNotch(): void {
-    if (this.notchPanel && !this.notchPanel.isDestroyed() && this.notchPanel.isVisible()) {
-      this.notchPanel.hide();
-      return;
-    }
+    // The island always hangs from the notch; tray/activate just pops it open.
     this.handleNotchHotkey();
   }
 
@@ -258,8 +277,20 @@ class MainProcess {
       }
     });
 
+    // Renderer toggles interactivity as the pointer enters/leaves the island, so the
+    // transparent canvas stays click-through everywhere else.
+    ipcMain.on('panel:set-interactive', (_event, interactive: boolean) => {
+      if (this.notchPanel && !this.notchPanel.isDestroyed()) {
+        this.notchPanel.setIgnoreMouseEvents(!interactive, { forward: true });
+      }
+    });
+
+    // Collapse back to the idle island (does not hide — the island always hangs from the notch).
     ipcMain.on('panel:close', () => {
-      if (this.notchPanel && !this.notchPanel.isDestroyed()) this.notchPanel.hide();
+      if (this.notchPanel && !this.notchPanel.isDestroyed()) {
+        this.notchPanel.webContents.send('panel:collapse');
+        this.notchPanel.setIgnoreMouseEvents(true, { forward: true });
+      }
     });
   }
 

@@ -1,157 +1,115 @@
-/* Notch panel — adapts the Llamas Remote DESIGN.md to the small command-bar form factor.
-   Light canvas surface + hairline border (no translucent dark), pill actions, Inter for UI
-   and JetBrains Mono for code. display-xl headlines are reserved for the full window. */
+/* Dynamic-Island style notch HUD for Llamas Remote.
+   Black surface fused to the notch (square top, rounded bottom), hanging from y=0.
+   Collapsed = a thin pill under the notch that mildly pops on hover; expanded = the
+   full capture/ask panel. This HUD is intentionally DARK (it imitates the hardware
+   notch); the light Figma DESIGN.md governs the future notebook window, not this. */
 
 :root {
-  --primary: #0a0a0a;        /* colors.primary */
-  --canvas: #ffffff;          /* colors.canvas */
-  --ink: #0a0a0a;             /* colors.ink */
-  --surface-soft: #f5f5f4;    /* colors.surface-soft */
-  --hairline: #e4e4e2;        /* colors.hairline */
-  --hairline-soft: #efefed;
-  --muted: #6b6b66;
-  --radius-pill: 50px;
-  --radius-md: 8px;
-  --radius-lg: 16px;
-  --space-xs: 8px;
-  --space-sm: 12px;
-  --space-md: 16px;
-  --space-lg: 24px;
-  --sans: 'Inter', -apple-system, system-ui, sans-serif;
+  --island-bg: #000000;
+  --surface: #1c1c1e;
+  --surface-2: #2c2c2e;
+  --ink: #f5f5f7;
+  --muted: #98989f;
+  --hairline: rgba(255, 255, 255, 0.10);
+  --accent: #d8a657;            /* warm amber */
+  --radius-bottom: 22px;
   --mono: 'JetBrains Mono', 'SF Mono', menlo, monospace;
+  --sans: 'Inter', -apple-system, system-ui, sans-serif;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
+html, body, #root { height: 100%; width: 100%; background: transparent; overflow: hidden; }
+body { font-family: var(--sans); color: var(--ink); -webkit-font-smoothing: antialiased; }
 
-html, body, #root { height: 100%; }
+/* Full transparent canvas; the island is centered at the very top. */
+.stage { position: relative; width: 100%; height: 100%; }
 
-body {
-  font-family: var(--sans);
-  color: var(--ink);
-  background: transparent;            /* window is transparent; the card draws the surface */
-  font-size: 15px;
-  -webkit-font-smoothing: antialiased;
-}
-
-.panel {
+.island {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--island-bg);
+  border-bottom-left-radius: var(--radius-bottom);
+  border-bottom-right-radius: var(--radius-bottom);
+  overflow: hidden;
+  /* notch-sized collapsed pill */
+  width: 200px;
+  height: 32px;
+  transition: width 0.3s var(--ease), height 0.3s var(--ease), box-shadow 0.3s var(--ease);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
   display: flex;
   flex-direction: column;
-  height: 100%;
-  background: var(--canvas);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
 }
 
-/* Input row: model chip + ask field + run hint */
-.ask-row {
+/* Mild pop on hover while collapsed. */
+.island:not(.expanded):hover {
+  width: 260px;
+  height: 40px;
+  cursor: pointer;
+}
+
+.island.expanded {
+  width: 660px;
+  height: 500px;
+  cursor: default;
+}
+
+/* ── Collapsed content: tiny status pill (icon left, waveform right) ── */
+.collapsed {
   display: flex;
   align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-sm) var(--space-md);
-  border-bottom: 1px solid var(--hairline-soft);
+  justify-content: space-between;
+  height: 100%;
+  padding: 0 14px;
+  opacity: 1;
+  transition: opacity 0.15s ease;
+}
+.island.expanded .collapsed { display: none; }
+.dot { width: 14px; height: 14px; border-radius: 50%; background: var(--accent); }
+.bars { display: flex; gap: 2px; align-items: flex-end; height: 12px; }
+.bars i { width: 2px; background: var(--muted); border-radius: 1px; }
+.bars i:nth-child(1) { height: 5px; }
+.bars i:nth-child(2) { height: 11px; }
+.bars i:nth-child(3) { height: 7px; }
+.bars i:nth-child(4) { height: 9px; }
+
+/* ── Expanded content ── */
+.content { display: none; flex-direction: column; height: 100%; }
+.island.expanded .content { display: flex; }
+
+.ask-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 16px; border-bottom: 1px solid var(--hairline);
 }
 .model-chip {
-  font-family: var(--mono);
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted);
-  background: var(--surface-soft);
-  padding: 4px 10px;
-  border-radius: var(--radius-pill);
-  white-space: nowrap;
+  font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--muted); background: var(--surface); padding: 4px 10px; border-radius: 50px; white-space: nowrap;
 }
-.ask-input {
-  flex: 1;
-  border: none;
-  outline: none;
-  font-family: var(--sans);
-  font-size: 15px;
-  color: var(--ink);
-  background: transparent;
-}
+.ask-input { flex: 1; border: none; outline: none; background: transparent; color: var(--ink); font-family: var(--sans); font-size: 15px; }
+.ask-input::placeholder { color: var(--muted); }
 .run-hint { font-family: var(--mono); font-size: 11px; color: var(--muted); }
 
-/* Preset pills */
-.pills {
-  display: flex;
-  gap: var(--space-xs);
-  padding: var(--space-sm) var(--space-md);
-  flex-wrap: wrap;
-  border-bottom: 1px solid var(--hairline-soft);
-}
+.pills { display: flex; gap: 8px; padding: 12px 16px; flex-wrap: wrap; border-bottom: 1px solid var(--hairline); }
 .pill {
-  font-size: 13px;
-  font-weight: 480;
-  padding: 6px 14px;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--hairline);
-  background: var(--canvas);
-  color: var(--ink);
-  cursor: pointer;
+  font-size: 13px; font-weight: 500; padding: 6px 14px; border-radius: 50px;
+  border: 1px solid var(--hairline); background: var(--surface); color: var(--ink); cursor: pointer;
 }
-.pill:hover { background: var(--surface-soft); }
-.pill.active { background: var(--primary); color: var(--canvas); border-color: var(--primary); }
+.pill:hover { background: var(--surface-2); }
+.pill.active { background: var(--ink); color: #000; border-color: var(--ink); }
 
-/* Captured selection */
-.captured {
-  display: flex;
-  gap: var(--space-sm);
-  padding: var(--space-sm) var(--space-md);
-  border-bottom: 1px solid var(--hairline-soft);
-  color: var(--muted);
-  font-size: 13px;
-}
-.captured .quote {
-  border-left: 2px solid var(--hairline);
-  padding-left: var(--space-sm);
-  max-height: 3.6em;
-  overflow: hidden;
-  flex: 1;
-  white-space: pre-wrap;
-}
-.captured .src {
-  font-family: var(--mono);
-  font-size: 11px;
-  text-transform: uppercase;
-  align-self: flex-start;
-  white-space: nowrap;
-}
+.captured { display: flex; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--hairline); color: var(--muted); font-size: 13px; }
+.captured .quote { border-left: 2px solid var(--hairline); padding-left: 10px; max-height: 3.6em; overflow: hidden; flex: 1; white-space: pre-wrap; }
+.captured .src { font-family: var(--mono); font-size: 11px; text-transform: uppercase; align-self: flex-start; white-space: nowrap; }
 
-/* Answer area */
-.answer {
-  flex: 1;
-  overflow-y: auto;
-  padding: var(--space-md);
-  font-size: 15px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-}
-.answer pre, .answer code { font-family: var(--mono); font-size: 13px; }
+.answer { flex: 1; overflow-y: auto; padding: 16px; font-size: 15px; line-height: 1.5; white-space: pre-wrap; }
 .answer.empty { color: var(--muted); display: flex; align-items: center; justify-content: center; text-align: center; }
+.answer pre, .answer code { font-family: var(--mono); font-size: 13px; }
 .shimmer { color: var(--muted); }
+.error { color: #ff6b5e; }
 
-/* Footer */
-.footer {
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
-  padding: var(--space-xs) var(--space-md);
-  border-top: 1px solid var(--hairline-soft);
-  font-size: 12px;
-  color: var(--muted);
-}
-.footer .saved { color: #2f8f4e; }
-.footer button {
-  font-family: var(--mono);
-  font-size: 11px;
-  text-transform: uppercase;
-  color: var(--muted);
-  background: none;
-  border: none;
-  cursor: pointer;
-}
+.footer { display: flex; align-items: center; gap: 16px; padding: 8px 16px; border-top: 1px solid var(--hairline); font-size: 12px; color: var(--muted); }
+.footer .saved { color: #4cd07d; }
 .footer .spacer { flex: 1; }
-
-.error { color: #b4321f; }
+.footer button { font-family: var(--mono); font-size: 11px; text-transform: uppercase; color: var(--muted); background: none; border: none; cursor: pointer; }

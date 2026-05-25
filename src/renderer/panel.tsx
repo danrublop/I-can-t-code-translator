@@ -36,6 +36,10 @@ const PRESETS = [
 
 type Status = 'idle' | 'loading' | 'done' | 'error' | 'empty';
 
+// Half-width of the top hover zone (covers both nubs + the notch gap between them).
+const HOVER_HALF_WIDTH = 200;
+const HOVER_TOP = 46;
+
 function Panel() {
   const [expanded, setExpanded] = useState(false);
   const [selection, setSelection] = useState('');
@@ -46,12 +50,10 @@ function Panel() {
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState('');
   const [activePreset, setActivePreset] = useState<string | undefined>();
-  const islandRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Refs mirror state for use inside event listeners without re-subscribing.
   const expandedRef = useRef(false);
-  const pinnedRef = useRef(false);           // true once the user starts using it (stays open until Esc)
+  const pinnedRef = useRef(false);
   const interactiveRef = useRef(false);
   const collapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   expandedRef.current = expanded;
@@ -75,21 +77,18 @@ function Panel() {
   }, [setInteractive]);
 
   const scheduleCollapse = useCallback(() => {
-    if (pinnedRef.current) return; // don't collapse once the user is actively using it
+    if (pinnedRef.current) return; // stay open once the user is actively using it
     if (collapseTimer.current) clearTimeout(collapseTimer.current);
     collapseTimer.current = setTimeout(collapseNow, 240);
   }, [collapseNow]);
 
-  // While collapsed + click-through, the main process forwards move events so we can
-  // detect when the pointer is over the island and open it. Once expanded (interactive),
-  // the island's own mouseenter/leave drives open/close.
+  // Collapsed + click-through: main forwards move events so we can detect a hover over the
+  // top-center (the nubs + notch gap) and drop the panel down.
   useEffect(() => {
     function onMove(e: MouseEvent) {
       if (expandedRef.current) return;
-      const r = islandRef.current?.getBoundingClientRect();
-      const pad = 4;
-      const over = !!r && e.clientX >= r.left - pad && e.clientX <= r.right + pad && e.clientY <= r.bottom + pad;
-      if (over) open();
+      const overTop = e.clientY <= HOVER_TOP && Math.abs(e.clientX - window.innerWidth / 2) <= HOVER_HALF_WIDTH;
+      if (overTop) open();
     }
     document.addEventListener('mousemove', onMove);
     return () => document.removeEventListener('mousemove', onMove);
@@ -109,7 +108,7 @@ function Panel() {
   }, [open, collapseNow]);
 
   async function run(req: PanelQueryRequest) {
-    pinnedRef.current = true; // keep open while a query runs / answer is shown
+    pinnedRef.current = true;
     setError(''); setAnswer(''); setStatus('loading');
     const res = await window.llamasAPI.runQuery(req);
     if (res.ok) { setAnswer(res.answer ?? ''); if (res.model) setModel(res.model); setStatus('done'); }
@@ -132,65 +131,64 @@ function Panel() {
     if (path) run({ kind: 'image', presetId: 'explain', imagePath: path });
   }
 
+  function cancelCollapse() {
+    if (collapseTimer.current) { clearTimeout(collapseTimer.current); collapseTimer.current = null; }
+  }
+
   return (
-    <div className="stage">
-      <div
-        ref={islandRef}
-        className={`island${expanded ? ' expanded' : ''}`}
-        onMouseEnter={() => { if (collapseTimer.current) { clearTimeout(collapseTimer.current); collapseTimer.current = null; } }}
-        onMouseLeave={scheduleCollapse}
-      >
-        {/* Collapsed pill */}
-        <div className="collapsed">
-          <span className="dot" />
-          <span className="bars"><i /><i /><i /><i /></span>
+    <div className={`stage${expanded ? ' expanded' : ''}`}>
+      {/* Always-visible widgets flanking the notch */}
+      <div className="nub left" onMouseEnter={() => { cancelCollapse(); open(); }}>
+        <span className="dot" />
+      </div>
+      <div className="nub right" onMouseEnter={() => { cancelCollapse(); open(); }}>
+        <span className="bars"><i /><i /><i /><i /></span>
+      </div>
+
+      {/* Expanded panel drops down under the notch */}
+      <div className="panel" onMouseEnter={cancelCollapse} onMouseLeave={scheduleCollapse}>
+        <div className="ask-row">
+          <span className="model-chip">{model}</span>
+          <input
+            ref={inputRef}
+            className="ask-input"
+            placeholder={status === 'empty' ? 'Select text or type a question' : 'Ask…'}
+            value={freeText}
+            onFocus={() => { pinnedRef.current = true; }}
+            onChange={(e) => setFreeText(e.target.value)}
+            onKeyDown={onAskKey}
+          />
+          <span className="run-hint">↵</span>
         </div>
 
-        {/* Expanded panel */}
-        <div className="content">
-          <div className="ask-row">
-            <span className="model-chip">{model}</span>
-            <input
-              ref={inputRef}
-              className="ask-input"
-              placeholder={status === 'empty' ? 'Select text or type a question' : 'Ask…'}
-              value={freeText}
-              onFocus={() => { pinnedRef.current = true; }}
-              onChange={(e) => setFreeText(e.target.value)}
-              onKeyDown={onAskKey}
-            />
-            <span className="run-hint">↵</span>
-          </div>
+        <div className="pills">
+          {PRESETS.map((p) => (
+            <button key={p.id} className={`pill${activePreset === p.id ? ' active' : ''}`} onClick={() => runPreset(p.id)}>
+              {p.name}
+            </button>
+          ))}
+          <button className="pill" onClick={screenshot}>Screenshot</button>
+        </div>
 
-          <div className="pills">
-            {PRESETS.map((p) => (
-              <button key={p.id} className={`pill${activePreset === p.id ? ' active' : ''}`} onClick={() => runPreset(p.id)}>
-                {p.name}
-              </button>
-            ))}
-            <button className="pill" onClick={screenshot}>Screenshot</button>
+        {selection.trim() && (
+          <div className="captured">
+            <div className="quote">{selection.slice(0, 280)}</div>
+            {sourceApp && <span className="src">{sourceApp}</span>}
           </div>
+        )}
 
-          {selection.trim() && (
-            <div className="captured">
-              <div className="quote">{selection.slice(0, 280)}</div>
-              {sourceApp && <span className="src">{sourceApp}</span>}
-            </div>
-          )}
+        <div className={`answer${status === 'idle' || status === 'empty' ? ' empty' : ''}`}>
+          {status === 'error' && <span className="error">{error}</span>}
+          {status === 'loading' && !answer && <span className="shimmer">Thinking…</span>}
+          {(status === 'loading' || status === 'done') && answer}
+          {status === 'idle' && 'Pick an action or ask a question.'}
+          {status === 'empty' && "Couldn't read a selection — paste or type your question above."}
+        </div>
 
-          <div className={`answer${status === 'idle' || status === 'empty' ? ' empty' : ''}`}>
-            {status === 'error' && <span className="error">{error}</span>}
-            {status === 'loading' && !answer && <span className="shimmer">Thinking…</span>}
-            {(status === 'loading' || status === 'done') && answer}
-            {status === 'idle' && 'Pick an action or ask a question.'}
-            {status === 'empty' && "Couldn't read a selection — paste or type your question above."}
-          </div>
-
-          <div className="footer">
-            {status === 'done' && <span className="saved">✓ saved to notebook</span>}
-            <span className="spacer" />
-            <button onClick={() => { collapseNow(); window.llamasAPI.close(); }}>esc close</button>
-          </div>
+        <div className="footer">
+          {status === 'done' && <span className="saved">✓ saved to notebook</span>}
+          <span className="spacer" />
+          <button onClick={() => { collapseNow(); window.llamasAPI.close(); }}>esc close</button>
         </div>
       </div>
     </div>

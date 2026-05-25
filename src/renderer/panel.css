@@ -1,8 +1,8 @@
 /* Dynamic-Island style notch HUD for Llamas Remote.
-   Black surface fused to the notch (square top, rounded bottom), hanging from y=0.
-   Collapsed = a thin pill under the notch that mildly pops on hover; expanded = the
-   full capture/ask panel. This HUD is intentionally DARK (it imitates the hardware
-   notch); the light Figma DESIGN.md governs the future notebook window, not this. */
+   Collapsed = two black widgets flanking the physical notch (dot left, waveform right),
+   always visible, fused to the top edge. Hover the top-center and the full panel drops
+   down below the notch. The HUD is intentionally DARK (it imitates the hardware notch);
+   the light Figma DESIGN.md governs the future notebook window, not this. */
 
 :root {
   --island-bg: #000000;
@@ -12,7 +12,9 @@
   --muted: #98989f;
   --hairline: rgba(255, 255, 255, 0.10);
   --accent: #d8a657;            /* warm amber */
-  --radius-bottom: 22px;
+  --notch-w: 200px;             /* approx physical notch width — tune per machine */
+  --nub-h: 26px;
+  --radius: 12px;
   --mono: 'JetBrains Mono', 'SF Mono', menlo, monospace;
   --sans: 'Inter', -apple-system, system-ui, sans-serif;
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
@@ -22,49 +24,27 @@
 html, body, #root { height: 100%; width: 100%; background: transparent; overflow: hidden; }
 body { font-family: var(--sans); color: var(--ink); -webkit-font-smoothing: antialiased; }
 
-/* Full transparent canvas; the island is centered at the very top. */
 .stage { position: relative; width: 100%; height: 100%; }
 
-.island {
+/* ── Collapsed widgets flanking the notch (always visible) ── */
+.nub {
   position: absolute;
-  top: 0;                       /* flush with the very top of the screen */
-  left: 50%;
-  transform: translateX(-50%);
+  top: 0;
+  height: var(--nub-h);
   background: var(--island-bg);
-  /* square top so it tucks against the screen edge / notch; only the bottom is rounded */
-  border-top-left-radius: 0;
-  border-top-right-radius: 0;
-  border-bottom-left-radius: var(--radius-bottom);
-  border-bottom-right-radius: var(--radius-bottom);
-  overflow: hidden;
-  /* notch-sized collapsed pill (no shadow — it should read as fused, not floating) */
-  width: 192px;
-  height: 30px;
-  transition: width 0.3s var(--ease), height 0.3s var(--ease);
-  display: flex;
-  flex-direction: column;
-}
-
-.island:not(.expanded) { cursor: pointer; }
-
-.island.expanded {
-  width: 660px;
-  height: 500px;
-  cursor: default;
-}
-
-/* ── Collapsed content: tiny status pill (icon left, waveform right) ── */
-.collapsed {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  height: 100%;
-  padding: 0 14px;
-  opacity: 1;
-  transition: opacity 0.15s ease;
+  /* square top (fused to screen edge), rounded bottom */
+  border-bottom-left-radius: var(--radius);
+  border-bottom-right-radius: var(--radius);
+  transition: opacity 0.18s ease;
+  cursor: pointer;
 }
-.island.expanded .collapsed { display: none; }
-.dot { width: 14px; height: 14px; border-radius: 50%; background: var(--accent); }
+.nub.left  { right: calc(50% + var(--notch-w) / 2); padding: 0 12px 0 16px; }
+.nub.right { left:  calc(50% + var(--notch-w) / 2); padding: 0 16px 0 12px; }
+.stage.expanded .nub { opacity: 0; pointer-events: none; }
+
+.dot { width: 12px; height: 12px; border-radius: 50%; background: var(--accent); }
 .bars { display: flex; gap: 2px; align-items: flex-end; height: 12px; }
 .bars i { width: 2px; background: var(--muted); border-radius: 1px; }
 .bars i:nth-child(1) { height: 5px; }
@@ -72,14 +52,32 @@ body { font-family: var(--sans); color: var(--ink); -webkit-font-smoothing: anti
 .bars i:nth-child(3) { height: 7px; }
 .bars i:nth-child(4) { height: 9px; }
 
-/* ── Expanded content ── */
-.content { display: none; flex-direction: column; height: 100%; }
-.island.expanded .content { display: flex; }
-
-.ask-row {
-  display: flex; align-items: center; gap: 10px;
-  padding: 12px 16px; border-bottom: 1px solid var(--hairline);
+/* ── Expanded panel: drops down from the top, centered under the notch ── */
+.panel {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 660px;
+  height: 500px;
+  transform: translateX(-50%) scaleY(0.6);
+  transform-origin: top center;
+  opacity: 0;
+  pointer-events: none;
+  background: var(--island-bg);
+  border-bottom-left-radius: var(--radius);
+  border-bottom-right-radius: var(--radius);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.28s var(--ease), opacity 0.2s ease;
 }
+.stage.expanded .panel {
+  transform: translateX(-50%) scaleY(1);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.ask-row { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--hairline); }
 .model-chip {
   font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;
   color: var(--muted); background: var(--surface); padding: 4px 10px; border-radius: 50px; white-space: nowrap;

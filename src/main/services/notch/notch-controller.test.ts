@@ -74,6 +74,35 @@ describe('NotchController.runQuery', () => {
     expect(prompt.endsWith('in one sentence')).toBe(true);
   });
 
+  it('folds attached files into the prompt under an "Attached files" header', async () => {
+    const { controller, llm } = setup();
+    await controller.runQuery({
+      kind: 'text',
+      freeText: 'summarize these',
+      attachments: [
+        { name: 'a.ts', content: 'export const a = 1;' },
+        { name: 'b.md', content: '# Notes' },
+      ],
+    });
+    const prompt = (llm.generate as any).mock.calls[0][0].prompt as string;
+    expect(prompt).toContain('summarize these');
+    expect(prompt).toContain('Attached files:');
+    expect(prompt).toContain('--- a.ts ---');
+    expect(prompt).toContain('export const a = 1;');
+    expect(prompt).toContain('--- b.md ---');
+  });
+
+  it('treats attachments alone as valid input (no selection or question)', async () => {
+    const { controller, llm } = setup();
+    await controller.runQuery({
+      kind: 'text',
+      attachments: [{ name: 'log.txt', content: 'error on line 5' }],
+    });
+    const prompt = (llm.generate as any).mock.calls[0][0].prompt as string;
+    expect(prompt.startsWith('Attached files:')).toBe(true);
+    expect(prompt).toContain('error on line 5');
+  });
+
   it('throws on empty input so the caller can show the paste/type state', async () => {
     const { controller, saved } = setup();
     await expect(controller.runQuery({ kind: 'text', capture: { text: '', via: 'none' } })).rejects.toThrow(/Nothing to ask/);

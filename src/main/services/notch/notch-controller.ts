@@ -50,6 +50,8 @@ export interface QueryRequest {
   capture?: CaptureResult;
   /** Screenshot path for image queries. */
   imagePath?: string;
+  /** Files the user attached, already read to text by the caller (name + content). */
+  attachments?: Array<{ name: string; content: string }>;
   /** Language detected for the selection, if any (used as a tag). */
   language?: string;
   /** Stream callback for partial answer tokens. */
@@ -113,16 +115,29 @@ export class NotchController {
   }
 
   private buildPrompt(req: QueryRequest, preset: Preset | undefined, selection: string): string {
+    let base: string;
     if (preset) {
-      const base = renderPrompt(preset.promptTemplate, { selection, image: req.imagePath });
+      base = renderPrompt(preset.promptTemplate, { selection, image: req.imagePath });
       // A typed follow-up appends to the preset prompt.
-      return req.freeText?.trim() ? `${base}\n\n${req.freeText.trim()}` : base;
+      if (req.freeText?.trim()) base = `${base}\n\n${req.freeText.trim()}`;
+    } else if (req.freeText?.trim() && selection.trim()) {
+      // No preset: freeform question about the selection.
+      base = `${req.freeText.trim()}\n\n${selection}`;
+    } else {
+      base = (req.freeText ?? selection).trim();
     }
-    // No preset: freeform question about the selection, or just the selection/question.
-    if (req.freeText?.trim() && selection.trim()) {
-      return `${req.freeText.trim()}\n\n${selection}`;
-    }
-    return (req.freeText ?? selection).trim();
+    return this.appendAttachments(base, req.attachments);
+  }
+
+  // Fold attached file contents into the prompt. Each file is fenced with its name so the
+  // model can tell them apart from the selection. Counts as input on its own, so a query
+  // with only attachments (no selection / question) is still valid.
+  private appendAttachments(base: string, attachments?: Array<{ name: string; content: string }>): string {
+    if (!attachments?.length) return base;
+    const files = attachments
+      .map((f) => `--- ${f.name} ---\n${f.content.trim()}`)
+      .join('\n\n');
+    return base.trim() ? `${base}\n\nAttached files:\n${files}` : `Attached files:\n${files}`;
   }
 
   private buildTitle(req: QueryRequest, preset: Preset | undefined, selection: string): string {

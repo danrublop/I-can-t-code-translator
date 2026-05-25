@@ -1,7 +1,7 @@
-import { app, BrowserWindow, globalShortcut, ipcMain, Tray, Menu, nativeImage, systemPreferences, shell } from 'electron';
-import { join, extname } from 'path';
+import { app, BrowserWindow, globalShortcut, ipcMain, Tray, Menu, nativeImage, systemPreferences, shell, dialog } from 'electron';
+import { join, extname, basename } from 'path';
 import { randomUUID } from 'crypto';
-import { rmSync, existsSync, readFileSync } from 'fs';
+import { rmSync, existsSync, readFileSync, statSync } from 'fs';
 import { OllamaProcessService } from './services/ollama-process.service';
 // Notch panel stack (notch/notebook pivot)
 import { createMacCaptureProvider } from './services/capture/mac-capture';
@@ -323,6 +323,27 @@ class MainProcess {
     }
   }
 
+  // Read attached files to text for the prompt. Caps per-file size (256 KB) and total
+  // (768 KB) so a stray binary or huge log can't blow the context window; unreadable or
+  // over-cap files are skipped (the model still gets the rest of the query).
+  private readAttachments(paths?: string[]): Array<{ name: string; content: string }> {
+    if (!paths?.length) return [];
+    const PER_FILE = 256 * 1024;
+    const TOTAL = 768 * 1024;
+    const out: Array<{ name: string; content: string }> = [];
+    let used = 0;
+    for (const p of paths.slice(0, 10)) {
+      try {
+        if (!existsSync(p) || statSync(p).size > PER_FILE) continue;
+        const content = readFileSync(p, 'utf8');
+        if (used + content.length > TOTAL) break;
+        used += content.length;
+        out.push({ name: basename(p), content });
+      } catch { /* skip unreadable / non-text files */ }
+    }
+    return out;
+  }
+
   private showSettings(): void {
     if (this.settingsWindow && !this.settingsWindow.isDestroyed()) {
       this.settingsWindow.show();
@@ -356,9 +377,12 @@ class MainProcess {
       sourceApp?: string;
       imagePath?: string;
       userSelectedModel?: string;
+      attachments?: string[]; // absolute paths the user attached via the picker
       autoOpen?: boolean; // open the notebook automatically when done (default true)
     }) => {
       if (!this.notchController) return { ok: false, error: 'Notch controller not ready' };
+
+      const attachments = this.readAttachments(req.attachments);
 
       // The answer streams into the notebook window (created hidden if not open). The panel
       // only shows progress + an Open button.
@@ -379,6 +403,7 @@ class MainProcess {
               ? { text: req.selection ?? '', sourceApp: req.sourceApp, via: 'clipboard' }
               : undefined,
           imagePath: req.imagePath,
+          attachments,
           onToken: (partial) => this.sendNotebook('notebook:token', partial),
         });
         this.sendNotebook('notebook:done', result.answer);
@@ -396,6 +421,17 @@ class MainProcess {
           try { rmSync(req.imagePath); } catch { /* ignore */ }
         }
       }
+    });
+
+    // Let the panel attach files: open a native picker and hand back the chosen paths +
+    // display names (the panel can't touch the filesystem). Contents are read at run time.
+    ipcMain.handle('panel:pick-files', async () => {
+      const win = this.notchPanel ?? undefined;
+      const result = win
+        ? await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'] })
+        : await dialog.showOpenDialog({ properties: ['openFile', 'multiSelections'] });
+      if (result.canceled) return [];
+      return result.filePaths.map((p) => ({ path: p, name: basename(p) }));
     });
 
     // On-demand capture when the panel opens (hover/click), while the source app is still

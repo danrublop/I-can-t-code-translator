@@ -51,6 +51,8 @@ body { font-family: var(--sans); color: var(--ink); -webkit-font-smoothing: anti
   cursor: pointer;
 }
 .island.expanded { width: 560px; height: 212px; cursor: default; }
+/* Grow to fit the attachment chips row. */
+.island.expanded.has-chips { height: 262px; }
 /* Grow so the model dropdown isn't clipped by the island's overflow:hidden. */
 .island.expanded.menu-open { height: 372px; }
 
@@ -167,6 +169,21 @@ body { font-family: var(--sans); color: var(--ink); -webkit-font-smoothing: anti
   background: var(--surface); color: var(--muted); cursor: pointer; font-size: 12px;
 }
 .type-close:hover { background: var(--surface-2); }
+
+/* Attachment chips */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; max-height: 56px; overflow-y: auto; }
+.chip {
+  display: inline-flex; align-items: center; gap: 5px; max-width: 180px;
+  padding: 4px 5px 4px 8px; border-radius: 8px; background: var(--surface-2);
+  border: 1px solid var(--hairline); font-size: 11.5px; color: var(--ink);
+}
+.chip-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chip-x {
+  flex: none; display: flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; border: none; border-radius: 5px; padding: 0;
+  background: transparent; color: var(--muted); cursor: pointer;
+}
+.chip-x:hover { background: rgba(255,255,255,0.12); color: var(--ink); }
 
 .statusbar { display: flex; align-items: center; gap: 12px; min-height: 24px; font-size: 12px; }
 .statusbar .hint { color: var(--muted); }

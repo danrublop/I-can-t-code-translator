@@ -63,14 +63,33 @@ function Notebook() {
   const [results, setResults] = useState<NoteSummary[] | null>(null); // null = not searching
   const [view, setView] = useState<'notes' | 'settings'>('notes'); // right pane: editor vs settings
   const [image, setImage] = useState<string | null>(null); // capture data URL for the selected note
+  const [words, setWords] = useState(0); // live word count of the editor
+  const [fmt, setFmt] = useState({ bold: false, italic: false, underline: false, ul: false, ol: false, block: '' });
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const editorRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
   const selectedRef = useRef<string | null>(null);
   const streamingRef = useRef(false);
   selectedRef.current = selectedId;
 
+  const recountWords = useCallback(() => {
+    const m = (editorRef.current?.textContent ?? '').trim().match(/\S+/g);
+    setWords(m ? m.length : 0);
+  }, []);
+
+  // Reflect the formatting at the caret so toolbar buttons can show an active state.
+  const updateFmt = useCallback(() => {
+    const el = editorRef.current;
+    const sel = window.getSelection();
+    if (!el || !sel || !sel.anchorNode || !el.contains(sel.anchorNode)) return;
+    const q = (c: string) => { try { return document.queryCommandState(c); } catch { return false; } };
+    let block = '';
+    try { block = (document.queryCommandValue('formatBlock') || '').toLowerCase(); } catch { /* ignore */ }
+    setFmt({ bold: q('bold'), italic: q('italic'), underline: q('underline'), ul: q('insertUnorderedList'), ol: q('insertOrderedList'), block });
+  }, []);
+
   // Plain text into the editor (used while streaming).
-  const setEditor = (text: string) => { if (editorRef.current) editorRef.current.textContent = text; };
+  const setEditor = (text: string) => { if (editorRef.current) editorRef.current.textContent = text; recountWords(); };
   // Render a stored body as sanitized HTML so rich formatting (bold/italic/headings)
   // persists. DOMPurify guards against injected markup from captured text / model output;
   // we use a DocumentFragment + replaceChildren rather than innerHTML.
@@ -78,6 +97,7 @@ function Notebook() {
     if (!editorRef.current) return;
     const frag = DOMPurify.sanitize(body, { RETURN_DOM_FRAGMENT: true });
     editorRef.current.replaceChildren(frag);
+    recountWords();
   };
 
   const refresh = useCallback(async () => setNotes(await window.notebookAPI.list()), []);
@@ -129,6 +149,25 @@ function Notebook() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Track caret formatting for the toolbar's active states.
+  useEffect(() => {
+    document.addEventListener('selectionchange', updateFmt);
+    return () => document.removeEventListener('selectionchange', updateFmt);
+  }, [updateFmt]);
+
+  // Keyboard shortcuts: ⌘N new note, ⌘F focus search.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+      const k = e.key.toLowerCase();
+      if (k === 'n') { e.preventDefault(); newNote(); }
+      else if (k === 'f') { e.preventDefault(); setView('notes'); searchRef.current?.focus(); searchRef.current?.select(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function onTitleChange(v: string) {
     setTitle(v);
     if (selectedId) window.notebookAPI.rename(selectedId, v).then(refresh).catch(() => {});
@@ -151,6 +190,7 @@ function Notebook() {
   function format(cmd: string, value?: string) {
     editorRef.current?.focus();
     document.execCommand(cmd, false, value);
+    updateFmt();
   }
 
   function addLink() {
@@ -190,7 +230,7 @@ function Notebook() {
       {n.model && <span className="row-icon"><BrandIcon model={n.model} size={16} /></span>}
       <div className="body">
         <div className="title">{n.title || 'Untitled'}</div>
-        <div className="meta">{n.sourceApp ? `${n.sourceApp} · ` : ''}{n.snippet}</div>
+        <div className="meta">{n.createdAt && relTime(n.createdAt) ? `${relTime(n.createdAt)} · ` : ''}{n.snippet}</div>
       </div>
       <button className={`pin${n.pinned ? ' on' : ''}`} onClick={(e) => togglePin(e, n)} title={n.pinned ? 'Unpin' : 'Pin'}>{Ico.pin}</button>
     </div>
@@ -201,9 +241,19 @@ function Notebook() {
 
   // Metadata for the header line under the title (only for a saved, selected note).
   const current = selectedId ? notes.find((n) => n.id === selectedId) : null;
-  const fmtDate = (iso: string) => {
+  const relTime = (iso: string) => {
     const d = new Date(iso);
-    return isNaN(d.getTime()) ? '' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    if (isNaN(d.getTime())) return '';
+    const s = Math.round((Date.now() - d.getTime()) / 1000);
+    if (s < 45) return 'just now';
+    const m = Math.round(s / 60);
+    if (m < 60) return `${m}m ago`;
+    const h = Math.round(m / 60);
+    if (h < 24) return `${h}h ago`;
+    const day = Math.round(h / 24);
+    if (day === 1) return 'Yesterday';
+    if (day < 7) return `${day}d ago`;
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: d.getFullYear() === new Date().getFullYear() ? undefined : 'numeric' });
   };
 
   return (
@@ -217,7 +267,7 @@ function Notebook() {
           <span className="search-icon">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
           </span>
-          <input className="search-input" placeholder="Search notes…" value={query} onChange={(e) => onSearch(e.target.value)} />
+          <input ref={searchRef} className="search-input" placeholder="Search notes…" value={query} onChange={(e) => onSearch(e.target.value)} />
         </div>
         <div className="note-list">
           {results !== null ? (
@@ -270,7 +320,7 @@ function Notebook() {
           <div className="note-meta">
             {current.model && <span className="nm-model"><BrandIcon model={current.model} size={14} /> {current.model}</span>}
             {current.sourceApp && <><span className="nm-dot">·</span><span>{current.sourceApp}</span></>}
-            {current.createdAt && fmtDate(current.createdAt) && <><span className="nm-dot">·</span><span>{fmtDate(current.createdAt)}</span></>}
+            {current.createdAt && relTime(current.createdAt) && <><span className="nm-dot">·</span><span>{relTime(current.createdAt)}</span></>}
           </div>
         )}
         {image && (
@@ -282,28 +332,39 @@ function Notebook() {
             <img src={image} alt="Screen capture" />
           </figure>
         )}
-        <div
-          ref={editorRef}
-          className="editor"
-          contentEditable={streaming !== 'streaming'}
-          suppressContentEditableWarning
-          onBlur={saveBody}
-          style={{ fontFamily: font, fontSize: `${size}px` }}
-        />
+        <div className="editor-wrap">
+          <div
+            ref={editorRef}
+            className="editor"
+            contentEditable={streaming !== 'streaming'}
+            suppressContentEditableWarning
+            onInput={recountWords}
+            onBlur={saveBody}
+            style={{ fontFamily: font, fontSize: `${size}px` }}
+          />
+          {streaming === 'idle' && words === 0 && !image && (
+            <div className="editor-empty">
+              <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+              <div className="ee-title">{selectedId ? 'This note is empty' : 'Start a new note'}</div>
+              <div className="ee-sub">Type here, or capture text from the notch to explain, debug, or summarize it.</div>
+            </div>
+          )}
+        </div>
         {streaming === 'error' && <div className="streaming-tag err">{streamErr}</div>}
         <div className="toolbar">
-          {streaming === 'streaming' && <span className="meta">streaming…</span>}
-          <button className="b" onClick={() => format('bold')} title="Bold">B</button>
-          <button className="i" onClick={() => format('italic')} title="Italic">I</button>
-          <button className="u" onClick={() => format('underline')} title="Underline">U</button>
+          <span className="meta">{streaming === 'streaming' ? 'streaming…' : `${words} ${words === 1 ? 'word' : 'words'}`}</span>
           <span className="sep" />
-          <button className="hd" onClick={() => format('formatBlock', 'h1')} title="Heading 1">H1</button>
-          <button className="hd" onClick={() => format('formatBlock', 'h2')} title="Heading 2">H2</button>
-          <button className="ico" onClick={() => format('formatBlock', 'blockquote')} title="Quote">{Ico.quote}</button>
+          <button className={`b${fmt.bold ? ' active' : ''}`} onClick={() => format('bold')} title="Bold">B</button>
+          <button className={`i${fmt.italic ? ' active' : ''}`} onClick={() => format('italic')} title="Italic">I</button>
+          <button className={`u${fmt.underline ? ' active' : ''}`} onClick={() => format('underline')} title="Underline">U</button>
           <span className="sep" />
-          <button className="ico" onClick={() => format('insertUnorderedList')} title="Bullet list">{Ico.bullet}</button>
-          <button className="ico" onClick={() => format('insertOrderedList')} title="Numbered list">{Ico.ordered}</button>
-          <button className="ico" onClick={() => format('formatBlock', 'pre')} title="Code block">{Ico.code}</button>
+          <button className={`hd${fmt.block === 'h1' ? ' active' : ''}`} onClick={() => format('formatBlock', 'h1')} title="Heading 1">H1</button>
+          <button className={`hd${fmt.block === 'h2' ? ' active' : ''}`} onClick={() => format('formatBlock', 'h2')} title="Heading 2">H2</button>
+          <button className={`ico${fmt.block === 'blockquote' ? ' active' : ''}`} onClick={() => format('formatBlock', 'blockquote')} title="Quote">{Ico.quote}</button>
+          <span className="sep" />
+          <button className={`ico${fmt.ul ? ' active' : ''}`} onClick={() => format('insertUnorderedList')} title="Bullet list">{Ico.bullet}</button>
+          <button className={`ico${fmt.ol ? ' active' : ''}`} onClick={() => format('insertOrderedList')} title="Numbered list">{Ico.ordered}</button>
+          <button className={`ico${fmt.block === 'pre' ? ' active' : ''}`} onClick={() => format('formatBlock', 'pre')} title="Code block">{Ico.code}</button>
           <button className="ico" onClick={addLink} title="Link">{Ico.link}</button>
           <span className="sep" />
           <select value={font} onChange={(e) => applyFont(e.target.value)} title="Font">

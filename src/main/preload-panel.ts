@@ -13,6 +13,8 @@ export interface PanelQueryRequest {
   imagePath?: string;
   /** Model the user picked in the panel. */
   userSelectedModel?: string;
+  /** Absolute paths of files the user attached. */
+  attachments?: string[];
   /** Auto-open the notebook when done (default true). */
   autoOpen?: boolean;
 }
@@ -41,6 +43,8 @@ const api = {
   captureScreenshot: (): Promise<string | null> => ipcRenderer.invoke('panel:screenshot'),
   /** List installed local models for the picker. */
   listModels: (): Promise<string[]> => ipcRenderer.invoke('panel:models'),
+  /** Open a native file picker; returns the chosen files' paths + display names. */
+  pickFiles: (): Promise<Array<{ path: string; name: string }>> => ipcRenderer.invoke('panel:pick-files'),
   /** Open the notebook window now (watch the answer stream in). */
   openNotebook: () => ipcRenderer.send('open-notebook'),
   /** Open the settings window (pull models, add cloud keys). */

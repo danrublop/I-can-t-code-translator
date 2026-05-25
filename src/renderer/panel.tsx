@@ -10,6 +10,8 @@ import Bug from 'lucide-react/dist/esm/icons/bug';
 import Languages from 'lucide-react/dist/esm/icons/languages';
 import PenLine from 'lucide-react/dist/esm/icons/pen-line';
 import AlignLeft from 'lucide-react/dist/esm/icons/align-left';
+import Paperclip from 'lucide-react/dist/esm/icons/paperclip';
+import X from 'lucide-react/dist/esm/icons/x';
 import './panel.css';
 
 interface PanelQueryRequest {
@@ -20,6 +22,7 @@ interface PanelQueryRequest {
   sourceApp?: string;
   imagePath?: string;
   userSelectedModel?: string;
+  attachments?: string[];
 }
 interface PanelQueryResult { ok: boolean; answer?: string; model?: string; entryId?: string; error?: string }
 interface PanelCaptured { selection: string; sourceApp?: string; empty: boolean; error?: string }
@@ -29,6 +32,7 @@ interface LlamasAPI {
   listModels: () => Promise<string[]>;
   openNotebook: () => void;
   openSettings: () => void;
+  pickFiles: () => Promise<Array<{ path: string; name: string }>>;
   requestCapture: () => Promise<{ selection: string; sourceApp?: string; empty: boolean; error?: string }>;
   close: () => void;
   setInteractive: (on: boolean) => void;
@@ -76,6 +80,7 @@ function Panel() {
   const [selection, setSelection] = useState('');
   const [sourceApp, setSourceApp] = useState<string | undefined>();
   const [freeText, setFreeText] = useState('');
+  const [attachments, setAttachments] = useState<Array<{ path: string; name: string }>>([]);
   const [models, setModels] = useState<string[]>([]);
   const [model, setModel] = useState(localStorage.getItem('lr-model') || '');
   const [modelOpen, setModelOpen] = useState(false);
@@ -130,6 +135,9 @@ function Panel() {
     setInteractive(false);
     pinnedRef.current = false;
     setStatus('idle');
+    setAttachments([]);
+    setFreeText('');
+    setTyping(false);
   }, [setInteractive]);
 
   const scheduleCollapse = useCallback(() => {
@@ -178,14 +186,29 @@ function Panel() {
     pinnedRef.current = true;
     setError('');
     setStatus('running');
-    const res = await window.llamasAPI.runQuery({ ...req, userSelectedModel: model || undefined });
+    const res = await window.llamasAPI.runQuery({
+      ...req,
+      userSelectedModel: model || undefined,
+      attachments: attachments.length ? attachments.map((a) => a.path) : undefined,
+    });
     if (res.ok) setStatus('done');
     else { setError(res.error ?? 'Something went wrong'); setStatus('error'); }
   }
 
+  async function attachFiles() {
+    pinnedRef.current = true;
+    const picked = await window.llamasAPI.pickFiles();
+    if (!picked.length) return;
+    // De-dupe by path so re-picking the same file doesn't stack chips.
+    setAttachments((prev) => {
+      const seen = new Set(prev.map((a) => a.path));
+      return [...prev, ...picked.filter((p) => !seen.has(p.path))];
+    });
+  }
+
   function runAction(presetId: string) {
-    if (!selection.trim() && !freeText.trim()) {
-      setError('Select text first, or type a question'); setStatus('error');
+    if (!selection.trim() && !freeText.trim() && attachments.length === 0) {
+      setError('Select text, attach a file, or type a question'); setStatus('error');
       return;
     }
     fire({ kind: 'text', presetId, selection, sourceApp, freeText: freeText.trim() || undefined });
@@ -211,7 +234,7 @@ function Panel() {
     <div className="stage">
       <div
         ref={islandRef}
-        className={`island${expanded ? ' expanded' : ''}${modelOpen ? ' menu-open' : ''}`}
+        className={`island${expanded ? ' expanded' : ''}${modelOpen ? ' menu-open' : ''}${attachments.length ? ' has-chips' : ''}`}
         onMouseEnter={() => { cancelCollapse(); if (!expandedRef.current) open(); }}
         onMouseLeave={scheduleCollapse}
       >
@@ -279,15 +302,32 @@ function Panel() {
                   value={freeText}
                   onChange={(e) => setFreeText(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' && freeText.trim()) { fire({ kind: 'text', selection, sourceApp, freeText: freeText.trim() }); setTyping(false); }
+                    if (e.key === 'Enter' && (freeText.trim() || attachments.length)) { fire({ kind: 'text', selection, sourceApp, freeText: freeText.trim() || undefined }); setTyping(false); }
                     if (e.key === 'Escape') setTyping(false);
                   }}
                 />
                 <button className="type-close" onClick={() => setTyping(false)} title="Close">✕</button>
               </div>
             </div>
+            <button className="icon-btn" onClick={attachFiles} disabled={busy} title="Attach files"><Paperclip size={16} /></button>
             <button className="icon-btn" onClick={screenshot} disabled={busy} title="Capture a screenshot"><Camera size={17} /></button>
           </div>
+
+          {attachments.length > 0 && (
+            <div className="chips">
+              {attachments.map((a) => (
+                <span key={a.path} className="chip" title={a.path}>
+                  <Paperclip size={11} />
+                  <span className="chip-name">{a.name}</span>
+                  <button
+                    className="chip-x"
+                    onClick={() => setAttachments((prev) => prev.filter((p) => p.path !== a.path))}
+                    title="Remove"
+                  ><X size={11} /></button>
+                </span>
+              ))}
+            </div>
+          )}
 
           <div className="statusbar">
             {status === 'running' && <div className="progress"><div className="bar" /></div>}

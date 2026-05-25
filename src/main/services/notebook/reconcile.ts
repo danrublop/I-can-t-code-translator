@@ -1,0 +1,150 @@
+// Notebook reconcile logic (pure, no I/O).
+//
+// Storage model (eng review D6): each entry's markdown FILE on disk is the source of
+// truth for its BODY; SQLite (FTS5) mirrors body + metadata for fast search. Because
+// users own the markdown files (and may edit/delete them outside the app), the index
+// can drift from disk. These pure functions decide how to reconcile a single entry,
+// given the index row and the on-disk file. The actual fs/SQLite calls live in the
+// caller; this module is deliberately I/O-free so every branch is unit-testable.
+//
+//   DISK present ─┬─ no row ............................ INSERT
+//                 ├─ row tombstoned ................... REVIVE   (re-index from disk)
+//                 ├─ disk newer than indexed .......... REINDEX  (markdown body wins)
+//                 └─ disk not newer ................... NOOP
+//   DISK absent ──┬─ row present, not tombstoned ...... TOMBSTONE
+//                 └─ row tombstoned / no row .......... NOOP
+
+export type ReconcileActionKind =
+  | 'insert'
+  | 'reindex'
+  | 'revive'
+  | 'tombstone'
+  | 'noop';
+
+/** What the SQLite index currently knows about an entry. */
+export interface IndexRow {
+  id: string;
+  /** Tags stored in the index (authoritative for metadata, but merged with frontmatter). */
+  tags: string[];
+  /** File mtime (ms) captured the last time this row was indexed. */
+  indexedMtimeMs: number;
+  tombstoned: boolean;
+}
+
+/** What the markdown file on disk currently contains. */
+export interface DiskEntry {
+  id: string;
+  /** Markdown body — source of truth for content. */
+  body: string;
+  /** Tags parsed from the file's YAML frontmatter. */
+  frontmatterTags: string[];
+  /** File mtime in ms. */
+  mtimeMs: number;
+}
+
+export interface ReconcileAction {
+  kind: ReconcileActionKind;
+  id: string;
+  /** Body to write to the index (present for insert/reindex/revive). */
+  body?: string;
+  /** Merged tag set to write to the index (present for insert/reindex/revive). */
+  tags?: string[];
+  /** File mtime to record as the new indexedMtimeMs (present for insert/reindex/revive). */
+  mtimeMs?: number;
+  /** Human-readable reason, useful for logging/observability. */
+  reason: string;
+}
+
+/**
+ * Merge two tag lists into a stable, de-duplicated union.
+ * Order: existing `a` first (in original order), then any new tags from `b`.
+ * Tags are compared case-insensitively but the first-seen casing is preserved.
+ */
+export function mergeTags(a: readonly string[], b: readonly string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const tag of [...a, ...b]) {
+    const key = tag.trim().toLowerCase();
+    if (key.length === 0 || seen.has(key)) continue;
+    seen.add(key);
+    out.push(tag.trim());
+  }
+  return out;
+}
+
+/**
+ * Decide how to reconcile one entry given its index row and on-disk file.
+ * Either side may be undefined (file deleted, or never indexed).
+ */
+export function reconcileEntry(
+  row: IndexRow | undefined,
+  disk: DiskEntry | undefined,
+): ReconcileAction {
+  // File deleted on disk.
+  if (!disk) {
+    if (row && !row.tombstoned) {
+      return { kind: 'tombstone', id: row.id, reason: 'markdown file removed on disk' };
+    }
+    const id = row?.id ?? 'unknown';
+    return { kind: 'noop', id, reason: 'no file and nothing live to tombstone' };
+  }
+
+  // File exists but was never indexed.
+  if (!row) {
+    return {
+      kind: 'insert',
+      id: disk.id,
+      body: disk.body,
+      tags: mergeTags(disk.frontmatterTags, []),
+      mtimeMs: disk.mtimeMs,
+      reason: 'new markdown file with no index row',
+    };
+  }
+
+  // File exists and a tombstoned row exists -> the user re-created (or restored) it.
+  if (row.tombstoned) {
+    return {
+      kind: 'revive',
+      id: disk.id,
+      body: disk.body,
+      tags: mergeTags(row.tags, disk.frontmatterTags),
+      mtimeMs: disk.mtimeMs,
+      reason: 'file present again for a tombstoned entry',
+    };
+  }
+
+  // File is newer than what we indexed -> markdown body wins; tags merge (union).
+  if (disk.mtimeMs > row.indexedMtimeMs) {
+    return {
+      kind: 'reindex',
+      id: disk.id,
+      body: disk.body,
+      tags: mergeTags(row.tags, disk.frontmatterTags),
+      mtimeMs: disk.mtimeMs,
+      reason: 'markdown newer than index (body wins, tags merged)',
+    };
+  }
+
+  return { kind: 'noop', id: disk.id, reason: 'index up to date with disk' };
+}
+
+/**
+ * Reconcile a full set of entries. Builds the union of ids across index + disk and
+ * runs {@link reconcileEntry} for each. Returns only the actions that change state
+ * (drops noops) so the caller has a tight work list.
+ */
+export function reconcileAll(
+  rows: readonly IndexRow[],
+  disk: readonly DiskEntry[],
+): ReconcileAction[] {
+  const rowById = new Map(rows.map((r) => [r.id, r]));
+  const diskById = new Map(disk.map((d) => [d.id, d]));
+  const ids = new Set<string>([...rowById.keys(), ...diskById.keys()]);
+
+  const actions: ReconcileAction[] = [];
+  for (const id of ids) {
+    const action = reconcileEntry(rowById.get(id), diskById.get(id));
+    if (action.kind !== 'noop') actions.push(action);
+  }
+  return actions;
+}

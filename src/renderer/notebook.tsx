@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import ReactDOM from 'react-dom/client';
 import DOMPurify from 'dompurify';
+import { BrandIcon } from './model-icon';
 import './notebook.css';
 
 interface NotebookMeta { prompt: string; selection: string; sourceApp?: string; model: string }
-interface NoteSummary { id: string; title: string; snippet: string; sourceApp?: string; pinned: boolean; createdAt: string }
+interface NoteSummary { id: string; title: string; snippet: string; sourceApp?: string; model?: string; pinned: boolean; createdAt: string }
 interface NotebookAPI {
   list: () => Promise<NoteSummary[]>;
   search: (query: string) => Promise<Array<{ id: string; snippet: string; tags: string[] }>>;
@@ -151,6 +152,7 @@ function Notebook() {
           {shown.length === 0 && <div className="empty-list">{results ? 'No matches.' : <>No notes yet.<br />Capture text and pick an action.</>}</div>}
           {shown.map((n) => (
             <div key={n.id} className={`note-row${selectedId === n.id ? ' selected' : ''}`} onClick={() => selectNote(n.id)}>
+              {n.model && <span className="row-icon"><BrandIcon model={n.model} size={16} /></span>}
               <div className="body">
                 <div className="title">{n.title}</div>
                 <div className="meta">{n.sourceApp ? `${n.sourceApp} · ` : ''}{n.snippet}</div>

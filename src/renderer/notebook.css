@@ -34,6 +34,7 @@ body { font-family: var(--sans); color: var(--ink); background: var(--canvas); -
 .note-row { padding: 10px 12px; border-bottom: 1px solid var(--hairline); cursor: pointer; display: flex; gap: 8px; align-items: flex-start; }
 .note-row:hover { background: var(--hairline); }
 .note-row.selected { background: var(--selected); }
+.note-row .row-icon { flex: none; margin-top: 2px; display: flex; }
 .note-row .body { flex: 1; min-width: 0; }
 .note-row .title { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .note-row .meta { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }

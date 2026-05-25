@@ -1,12 +1,13 @@
 // App settings persisted to userData/settings.json.
 //
-// Holds cloud-provider API keys (OpenAI / Anthropic) so the user can use hosted models
-// alongside local Ollama ones. NOTE: keys are stored in plaintext JSON in the app's user
-// data dir. That's acceptable for a local single-user app, but it is NOT OS-keychain
-// secure — revisit with keytar/safeStorage if this ships widely.
+// Holds cloud-provider API keys (OpenAI / Anthropic). Keys are encrypted at rest with
+// Electron safeStorage (OS keychain-backed) and stored as `enc:<base64>`. In memory they
+// are plaintext for use by the LLM clients. If encryption is unavailable (rare), we fall
+// back to plaintext and migrate to encrypted on the next save.
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
+import { safeStorage } from 'electron';
 
 export interface AppSettings {
   openaiKey?: string;
@@ -18,7 +19,10 @@ export class SettingsService {
 
   constructor(private readonly file: string) {
     try {
-      if (existsSync(file)) this.settings = JSON.parse(readFileSync(file, 'utf8')) as AppSettings;
+      if (existsSync(file)) {
+        const raw = JSON.parse(readFileSync(file, 'utf8')) as AppSettings;
+        this.settings = { openaiKey: decrypt(raw.openaiKey), anthropicKey: decrypt(raw.anthropicKey) };
+      }
     } catch {
       this.settings = {};
     }
@@ -46,11 +50,33 @@ export class SettingsService {
   private save(): void {
     try {
       if (!existsSync(dirname(this.file))) mkdirSync(dirname(this.file), { recursive: true });
-      writeFileSync(this.file, JSON.stringify(this.settings, null, 2), 'utf8');
+      // Encrypt keys before writing to disk.
+      const onDisk: AppSettings = { openaiKey: encrypt(this.settings.openaiKey), anthropicKey: encrypt(this.settings.anthropicKey) };
+      writeFileSync(this.file, JSON.stringify(onDisk, null, 2), 'utf8');
     } catch (e) {
       console.error('Failed to save settings:', e);
     }
   }
+}
+
+function encrypt(value?: string): string | undefined {
+  if (!value) return undefined;
+  try {
+    if (safeStorage.isEncryptionAvailable()) return `enc:${safeStorage.encryptString(value).toString('base64')}`;
+  } catch { /* fall through */ }
+  return value; // plaintext fallback
+}
+
+function decrypt(value?: string): string | undefined {
+  if (!value) return undefined;
+  if (value.startsWith('enc:')) {
+    try {
+      return safeStorage.decryptString(Buffer.from(value.slice(4), 'base64'));
+    } catch {
+      return undefined; // corrupt/unreadable — treat as unset
+    }
+  }
+  return value; // legacy plaintext (re-encrypted on next save)
 }
 
 /** Default settings path under Electron userData. */

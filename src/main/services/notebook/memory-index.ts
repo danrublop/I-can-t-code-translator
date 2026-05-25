@@ -12,6 +12,7 @@ interface Row {
   body: string;
   tags: string[];
   sourceApp?: string;
+  model?: string;
   createdAt?: string;
   pinned: boolean;
   mtimeMs: number;
@@ -41,6 +42,7 @@ export class MemoryNotebookIndex implements NotebookIndex {
       body: row.body,
       tags: row.tags,
       sourceApp: row.sourceApp ?? prev?.sourceApp,
+      model: row.model ?? prev?.model,
       createdAt: row.createdAt ?? prev?.createdAt,
       pinned: row.pinned ?? prev?.pinned ?? false,
       mtimeMs: row.indexedMtimeMs,
@@ -72,6 +74,7 @@ export class MemoryNotebookIndex implements NotebookIndex {
         title: deriveTitle(r.title, r.body),
         snippet: stripHtml(r.body).slice(0, 80),
         sourceApp: r.sourceApp,
+        model: r.model,
         pinned: r.pinned,
         createdAt: r.createdAt ?? '',
       }));

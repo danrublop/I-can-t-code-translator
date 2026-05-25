@@ -35,6 +35,7 @@ export interface NoteSummary {
   title: string;
   snippet: string;
   sourceApp?: string;
+  model?: string;
   pinned: boolean;
   createdAt: string;
 }

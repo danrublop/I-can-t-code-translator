@@ -116,16 +116,17 @@ export class SqliteNotebookIndex implements NotebookIndex {
   list(): NoteSummary[] {
     const rows = this.db
       .prepare(
-        `SELECT id, title, body, source_app AS sourceApp, pinned, created_at AS createdAt
+        `SELECT id, title, body, source_app AS sourceApp, model, pinned, created_at AS createdAt
          FROM entries WHERE tombstoned = 0
          ORDER BY pinned DESC, created_at DESC LIMIT 500`,
       )
-      .all() as Array<{ id: string; title: string | null; body: string; sourceApp: string | null; pinned: number; createdAt: string | null }>;
+      .all() as Array<{ id: string; title: string | null; body: string; sourceApp: string | null; model: string | null; pinned: number; createdAt: string | null }>;
     return rows.map((r) => ({
       id: r.id,
       title: deriveTitle(r.title, r.body),
       snippet: stripHtml(r.body).slice(0, 80),
       sourceApp: r.sourceApp ?? undefined,
+      model: r.model ?? undefined,
       pinned: r.pinned === 1,
       createdAt: r.createdAt ?? '',
     }));

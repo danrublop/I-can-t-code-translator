@@ -71,6 +71,8 @@ function Panel() {
   const [models, setModels] = useState<string[]>([]);
   const [model, setModel] = useState(localStorage.getItem('lr-model') || '');
   const [modelOpen, setModelOpen] = useState(false);
+  const [typing, setTyping] = useState(false);
+  const typeInputRef = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState('');
   const islandRef = useRef<HTMLDivElement>(null);
@@ -217,6 +219,10 @@ function Panel() {
         {/* Expanded: compact launcher */}
         <div className="panel">
           <div className="hdr">
+            <span className={`sel-indicator${hasSelection ? ' on' : ''}`}>
+              {hasSelection ? `Selected${sourceApp ? ` · ${sourceApp}` : ''}` : 'No selection'}
+            </span>
+            <span className="spacer" />
             <div className="model-picker" ref={modelPickerRef}>
               <button className="model-btn" onClick={() => setModelOpen((v) => !v)} title="Model">
                 {model && <BrandIcon model={model} size={15} />}
@@ -239,30 +245,41 @@ function Panel() {
                 </div>
               )}
             </div>
-            <span className={`sel-indicator${hasSelection ? ' on' : ''}`}>
-              {hasSelection ? `Selected${sourceApp ? ` · ${sourceApp}` : ''}` : 'No selection'}
-            </span>
-            <span className="spacer" />
-            <button className="ghost-btn" onClick={() => window.llamasAPI.openNotebook()} title="Open notebook">▤ Notebook</button>
+            <button className="ghost-btn icon-only" onClick={() => window.llamasAPI.openNotebook()} title="Open notebook">▤</button>
             <button className="ghost-btn icon-only" onClick={() => window.llamasAPI.openSettings()} title="Settings">⚙</button>
           </div>
 
-          <div className="input-row">
-            <input
-              className="ask-input"
-              placeholder={hasSelection ? 'Add a follow-up (optional)…' : 'Type a question…'}
-              value={freeText}
-              onFocus={() => { pinnedRef.current = true; }}
-              onChange={(e) => setFreeText(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') fire({ kind: 'text', selection, sourceApp, freeText: freeText.trim() || undefined }); if (e.key === 'Escape') { collapseNow(); window.llamasAPI.close(); } }}
-            />
+          <div className="actions-row">
+            <div className="actions-wrap">
+              <div className="actions">
+                {ACTIONS.map((a) => (
+                  <button key={a.id} className="action" disabled={busy} onClick={() => runAction(a.id)}>{a.name}</button>
+                ))}
+                <button
+                  className="action type-btn"
+                  disabled={busy}
+                  onClick={() => { setTyping(true); pinnedRef.current = true; setTimeout(() => typeInputRef.current?.focus(), 60); }}
+                >
+                  Type a question
+                </button>
+              </div>
+              {/* Slides open over the buttons when "Type a question" is clicked. */}
+              <div className={`type-overlay${typing ? ' open' : ''}`}>
+                <input
+                  ref={typeInputRef}
+                  className="ask-input"
+                  placeholder="Type a question…"
+                  value={freeText}
+                  onChange={(e) => setFreeText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && freeText.trim()) { fire({ kind: 'text', selection, sourceApp, freeText: freeText.trim() }); setTyping(false); }
+                    if (e.key === 'Escape') setTyping(false);
+                  }}
+                />
+                <button className="type-close" onClick={() => setTyping(false)} title="Close">✕</button>
+              </div>
+            </div>
             <button className="icon-btn" onClick={screenshot} disabled={busy} title="Screenshot a region">⌖</button>
-          </div>
-
-          <div className="actions">
-            {ACTIONS.map((a) => (
-              <button key={a.id} className="action" disabled={busy} onClick={() => runAction(a.id)}>{a.name}</button>
-            ))}
           </div>
 
           <div className="statusbar">

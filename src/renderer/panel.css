@@ -133,13 +133,32 @@ body { font-family: var(--sans); color: var(--ink); -webkit-font-smoothing: anti
 .icon-btn:hover:not(:disabled) { background: var(--surface-2); }
 .icon-btn:disabled { opacity: 0.5; cursor: default; }
 
-.actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.actions-row { display: flex; align-items: stretch; gap: 8px; }
+.actions-wrap { position: relative; flex: 1; min-width: 0; }
+.actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .action {
-  flex: 1; min-width: 84px; font-size: 13px; font-weight: 500; padding: 8px 10px; border-radius: 10px;
-  border: 1px solid var(--hairline); background: var(--surface); color: var(--ink); cursor: pointer;
+  flex: 1 1 auto; min-width: 72px; font-size: 12px; font-weight: 500; padding: 8px 10px; border-radius: 10px;
+  border: 1px solid var(--hairline); background: var(--surface); color: var(--ink); cursor: pointer; white-space: nowrap;
 }
 .action:hover:not(:disabled) { background: var(--surface-2); }
 .action:disabled { opacity: 0.5; cursor: default; }
+.action.type-btn { flex: 2 1 120px; color: var(--muted); }
+
+/* Type input slides over the action buttons (reveals right-to-left). */
+.type-overlay {
+  position: absolute; inset: 0; display: flex; align-items: center; gap: 6px;
+  background: var(--island-bg);
+  clip-path: inset(0 0 0 100%);
+  transition: clip-path 0.26s var(--ease);
+  pointer-events: none;
+}
+.type-overlay.open { clip-path: inset(0 0 0 0); pointer-events: auto; }
+.type-overlay .ask-input { flex: 1; }
+.type-close {
+  flex: none; width: 30px; height: 34px; border: 1px solid var(--hairline); border-radius: 8px;
+  background: var(--surface); color: var(--muted); cursor: pointer; font-size: 12px;
+}
+.type-close:hover { background: var(--surface-2); }
 
 .statusbar { display: flex; align-items: center; gap: 12px; min-height: 24px; font-size: 12px; }
 .statusbar .hint { color: var(--muted); }

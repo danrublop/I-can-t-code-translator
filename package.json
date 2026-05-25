@@ -64,6 +64,7 @@
     "webpack-dev-server": "^5.2.2"
   },
   "dependencies": {
+    "@lobehub/icons": "^5.8.0",
     "axios": "^1.13.5",
     "better-sqlite3": "^11.10.0",
     "dompurify": "^3.4.5",
@@ -91,8 +92,14 @@
       "node_modules/better-sqlite3/**"
     ],
     "extraResources": [
-      { "from": "build-resources/trayTemplate.png", "to": "trayTemplate.png" },
-      { "from": "build-resources/trayTemplate@2x.png", "to": "trayTemplate@2x.png" }
+      {
+        "from": "build-resources/trayTemplate.png",
+        "to": "trayTemplate.png"
+      },
+      {
+        "from": "build-resources/trayTemplate@2x.png",
+        "to": "trayTemplate@2x.png"
+      }
     ],
     "mac": {
       "category": "public.app-category.developer-tools",

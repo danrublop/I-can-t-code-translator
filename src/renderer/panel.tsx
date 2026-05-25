@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import ReactDOM from 'react-dom/client';
+import { BrandIcon } from './model-icon';
 import './panel.css';
 
 interface PanelQueryRequest {
@@ -45,6 +46,7 @@ function Panel() {
   const [freeText, setFreeText] = useState('');
   const [models, setModels] = useState<string[]>([]);
   const [model, setModel] = useState(localStorage.getItem('lr-model') || '');
+  const [modelOpen, setModelOpen] = useState(false);
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState('');
   const islandRef = useRef<HTMLDivElement>(null);
@@ -166,10 +168,28 @@ function Panel() {
         {/* Expanded: compact launcher */}
         <div className="panel">
           <div className="hdr">
-            <select className="model-select" value={model} onChange={(e) => { setModel(e.target.value); localStorage.setItem('lr-model', e.target.value); }} title="Model">
-              {models.length === 0 && <option value="">default model</option>}
-              {models.map((m) => <option key={m} value={m}>{m}</option>)}
-            </select>
+            <div className="model-picker">
+              <button className="model-btn" onClick={() => setModelOpen((v) => !v)} title="Model">
+                {model && <BrandIcon model={model} size={15} />}
+                <span className="model-name">{model || 'default model'}</span>
+                <span className="chev">▾</span>
+              </button>
+              {modelOpen && (
+                <div className="model-menu">
+                  {models.length === 0 && <div className="model-opt muted">no models installed</div>}
+                  {models.map((m) => (
+                    <button
+                      key={m}
+                      className={`model-opt${m === model ? ' on' : ''}`}
+                      onClick={() => { setModel(m); localStorage.setItem('lr-model', m); setModelOpen(false); }}
+                    >
+                      <BrandIcon model={m} size={15} />
+                      <span className="model-name">{m}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <span className={`sel-indicator${hasSelection ? ' on' : ''}`}>
               {hasSelection ? `Selected${sourceApp ? ` · ${sourceApp}` : ''}` : 'No selection'}
             </span>

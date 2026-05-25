@@ -12,7 +12,7 @@
   --muted: #98989f;
   --hairline: rgba(255, 255, 255, 0.10);
   --accent: #d8a657;            /* warm amber */
-  --notch-w: 170px;             /* approx physical notch width — tune per machine */
+  --notch-w: 200px;             /* approx physical notch width — tune per machine */
   --nub-h: 40px;                /* taller than the menu bar (~33px) so it fully covers the top */
   --radius: 14px;
   --mono: 'JetBrains Mono', 'SF Mono', menlo, monospace;

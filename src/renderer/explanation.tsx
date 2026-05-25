@@ -1,8 +1,11 @@
 /// <reference path="./types/electron.d.ts" />
 import React, { useState, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom/client';
-import { UserProfile } from '../main/services/auth.service';
 import loadingManImage from './loadingman.png';
+
+// Legacy auth/account UI is being removed in the notch/notebook pivot. This minimal
+// stand-in keeps the dead `user` state compiling until the renderer is reshaped.
+type UserProfile = { name?: string; email?: string; avatarUrl?: string };
 
 // Function to parse markdown-style formatting from Mistral
 const parseMarkdown = (text: string): string => {

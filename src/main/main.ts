@@ -3,12 +3,6 @@ import { join } from 'path';
 import { OllamaService } from './services/ollama.service';
 import { OllamaProcessService } from './services/ollama-process.service';
 import { CodeAnalysisService } from './services/code-analysis.service';
-import { analyticsService } from './services/analytics.service';
-import { authService } from './services/auth.service';
-import { gamificationService } from './services/gamification.service';
-import { WEBSITE_CONFIG } from './config/website';
-import { LicenseService } from './services/license.service';
-import { LICENSING_CONFIG } from './config/licensing.config';
 import { writeFile, readFile, existsSync, mkdirSync } from 'fs';
 import { promisify } from 'util';
 
@@ -19,12 +13,9 @@ const readFileAsync = promisify(readFile);
 class MainProcess {
   private mainWindow: BrowserWindow | null = null;
   private explanationWindow: BrowserWindow | null = null;
-  private websiteAuthWindow: BrowserWindow | null = null;
   private ollamaService: OllamaService;
   private ollamaProcessService: OllamaProcessService;
   private codeAnalysisService: CodeAnalysisService;
-  private licenseService: LicenseService;
-  // private explanationStorageService: ExplanationStorageService;
   private isToolbarVisible = true;
   private clipboardWatcher: NodeJS.Timeout | null = null;
   private lastClipboardContent = '';
@@ -35,8 +26,6 @@ class MainProcess {
     this.ollamaService = new OllamaService();
     this.ollamaProcessService = new OllamaProcessService();
     this.codeAnalysisService = new CodeAnalysisService();
-    this.licenseService = new LicenseService();
-    // this.explanationStorageService = new ExplanationStorageService();
 
     // Set up persistent storage path for explanations
     const userDataPath = app.getPath('userData');
@@ -69,28 +58,7 @@ class MainProcess {
     // Handle app lifecycle
     this.handleAppLifecycle();
 
-    // Start Ollama automatically
-    this.startOllamaIfNeeded();
-
-    // Track app launch
-    analyticsService.trackAppLaunch();
-
-    console.log('i cant code - Initialized successfully');
-  }
-
-  private checkAndShowOnboarding(): void {
-    // Only show onboarding for authenticated users
-    if (false) {
-      console.log('User not authenticated - skipping onboarding');
-      return;
-    }
-
-    console.log('Checking if authenticated user needs onboarding...');
-
-    // For authenticated users, check if they need onboarding
-    // The explanation window will check localStorage and show onboarding if needed
-    // No delay - create window immediately to prevent white popup
-    this.createExplanationWindow();
+    console.log('Initialized successfully');
   }
 
   private createMainWindow(): void {
@@ -146,25 +114,6 @@ class MainProcess {
 
       // Send initial clipboard data
       this.updateLineCount(clipboard.readText());
-
-      // Check authentication status and notify the renderer
-      const isAuthenticated = authService.isAuthenticated();
-      console.log('User authentication status:', isAuthenticated);
-
-      // Send authentication status to the main window
-      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-        this.mainWindow.webContents.send('auth-status', {
-          isAuthenticated,
-          user: authService.getUser()
-        });
-      }
-
-      // Only check for onboarding if user is authenticated
-      if (isAuthenticated) {
-        this.checkAndShowOnboarding();
-      } else {
-        console.log('User not authenticated - login required in main window');
-      }
     });
 
     this.mainWindow.on('closed', () => {
@@ -207,18 +156,7 @@ class MainProcess {
     });
 
     this.explanationWindow.webContents.on('did-finish-load', () => {
-      console.log('i cant code - Explanation window loaded and ready');
-
-      // Send authentication status to explanation window
-      const isAuthenticated = authService.isAuthenticated();
-      const user = authService.getUser();
-
-      if (this.explanationWindow && !this.explanationWindow.isDestroyed()) {
-        this.explanationWindow.webContents.send('auth-status', {
-          isAuthenticated,
-          user
-        });
-      }
+      console.log('Explanation window loaded and ready');
 
       // Send initial message to explanation window
       console.log('Sending initial message to explanation window');
@@ -240,47 +178,6 @@ class MainProcess {
       console.log('Explanation window closed');
       this.explanationWindow = null;
     });
-  }
-
-  private createWebsiteAuthWindow(url: string): void {
-    // Create a window for the website authentication
-    const authWindow = new BrowserWindow({
-      width: 1200,
-      height: 800,
-      frame: true, // Show frame for website navigation
-      resizable: true,
-      alwaysOnTop: false,
-      show: false, // Don't show until ready to prevent white flash
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: true,
-        preload: join(__dirname, 'preload-website.js')
-      }
-    });
-
-    // Load the website URL
-    authWindow.loadURL(url);
-
-    // Show window when ready to prevent white flash
-    authWindow.once('ready-to-show', () => {
-      authWindow.show();
-    });
-
-    // Handle window close - ensure it's properly cleaned up
-    authWindow.on('closed', () => {
-      console.log('Website auth window closed');
-      this.websiteAuthWindow = null;
-    });
-
-    // Handle page load errors
-    authWindow.webContents.on('did-fail-load', () => {
-      console.log('Website auth window failed to load, closing...');
-      authWindow.close();
-      this.websiteAuthWindow = null;
-    });
-
-    // Store reference to close it later
-    this.websiteAuthWindow = authWindow;
   }
 
   private registerGlobalShortcuts(): void {
@@ -328,9 +225,6 @@ class MainProcess {
       language = await this.codeAnalysisService.detectLanguage(clipboardContent);
       console.log(`Detected language: ${language}`);
 
-      // Track explanation request
-      analyticsService.trackExplanationRequest(language, clipboardContent.length);
-
       // Create explanation window
       this.createExplanationWindow();
 
@@ -343,8 +237,6 @@ class MainProcess {
 
       // Generate AI explanation with progress tracking
       console.log('Starting AI explanation generation...');
-
-      const startTime = Date.now();
 
       // Send initial progress
       this.sendExplanationData({
@@ -379,29 +271,6 @@ class MainProcess {
       ]);
 
       console.log('AI explanation received, length:', explanation.length);
-
-      // Track explanation completion
-      const responseTime = Date.now() - startTime;
-      analyticsService.trackExplanationCompleted(language, clipboardContent.length, responseTime, true);
-
-      // Award points for successful explanation
-      const points = gamificationService.calculatePointsForRequest(language, clipboardContent.length);
-      await authService.addPoints(points);
-
-      // Check for achievements
-      const user = authService.getUser();
-      if (user) {
-        // Check for first request achievement
-        if (user.totalRequests === 1) {
-          const achievement = gamificationService.unlockAchievement('first_request');
-          if (achievement) {
-            this.showNotification(
-              'Achievement Unlocked! 🏆',
-              `You've unlocked: ${achievement.name} - ${achievement.description}`
-            );
-          }
-        }
-      }
 
       // Send final explanation data
       this.sendExplanationData({
@@ -476,15 +345,6 @@ class MainProcess {
 
     // Handle open-settings-page request from toolbar
     ipcMain.on('open-settings-page', () => {
-      // Check if user is authenticated
-      if (false) {
-        this.showNotification(
-          'Authentication Required',
-          'Please log in first to access settings.'
-        );
-        return;
-      }
-
       // Ensure explanation window is open
       if (!this.explanationWindow || this.explanationWindow.isDestroyed()) {
         this.createExplanationWindow();
@@ -500,15 +360,6 @@ class MainProcess {
 
     // Handle open-notebook-in-explanation request from toolbar
     ipcMain.on('open-notebook-in-explanation', () => {
-      // Check if user is authenticated
-      if (false) {
-        this.showNotification(
-          'Authentication Required',
-          'Please log in first to access the codebook.'
-        );
-        return;
-      }
-
       // Ensure explanation window is open
       if (!this.explanationWindow || this.explanationWindow.isDestroyed()) {
         this.createExplanationWindow();
@@ -525,14 +376,6 @@ class MainProcess {
     // Handle save-explanation request
     ipcMain.handle('save-explanation', async (_, data) => {
       try {
-        // Check if user is authenticated
-        if (false) {
-          return {
-            success: false,
-            error: 'Authentication required. Please log in first.'
-          };
-        }
-
         console.log('Saving explanation to notebook:', data);
 
         // Check for duplicates before saving
@@ -590,14 +433,6 @@ class MainProcess {
     // Handle get-all-explanations request
     ipcMain.handle('get-all-explanations', async () => {
       try {
-        // Check if user is authenticated
-        if (false) {
-          return {
-            success: false,
-            error: 'Authentication required. Please log in first.'
-          };
-        }
-
         const explanations = this.savedExplanations || [];
         console.log('Retrieved explanations:', explanations.length);
 
@@ -617,14 +452,6 @@ class MainProcess {
     // Handle delete-explanation request
     ipcMain.handle('delete-explanation', async (_, id: string) => {
       try {
-        // Check if user is authenticated
-        if (false) {
-          return {
-            success: false,
-            error: 'Authentication required. Please log in first.'
-          };
-        }
-
         const index = this.savedExplanations.findIndex(exp => exp.id === id);
         if (index === -1) {
           return {
@@ -653,56 +480,8 @@ class MainProcess {
       }
     });
 
-    // Handle license info requests
-    ipcMain.handle('get-license-info', async () => {
-      try {
-        const licenseInfo = this.licenseService.getLicenseInfo();
-        const isFreeMode = LICENSING_CONFIG.mode === 'free';
-
-        return {
-          success: true,
-          licenseInfo,
-          isFreeMode,
-          config: LICENSING_CONFIG
-        };
-      } catch (error) {
-        console.error('Error getting license info:', error);
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        };
-      }
-    });
-
-    // Handle trial start requests
-    ipcMain.handle('start-trial', async () => {
-      try {
-        this.licenseService.startTrial();
-        console.log('Trial started successfully');
-
-        return {
-          success: true,
-          licenseInfo: this.licenseService.getLicenseInfo()
-        };
-      } catch (error) {
-        console.error('Error starting trial:', error);
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        };
-      }
-    });
-
     // Handle translation requests
     ipcMain.handle('translate-code', async (_, { code, detailLevel }) => {
-      // Check if user is authenticated
-      if (false) {
-        return {
-          success: false,
-          error: 'Authentication required. Please log in first.'
-        };
-      }
-
       try {
         console.log('Translation request received:', { codeLength: code.length, detailLevel });
 
@@ -716,252 +495,6 @@ class MainProcess {
         return { success: true, explanation, language };
       } catch (error) {
         console.error('Translation error:', error);
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        };
-      }
-    });
-
-    // Handle website authentication opening
-    ipcMain.handle('open-auth-website', async () => {
-      try {
-        // Open the website login page in an Electron window
-        const loginUrl = WEBSITE_CONFIG.getLoginUrl();
-        console.log('Opening authentication website in Electron window:', loginUrl);
-
-        // Create a new window for the website
-        this.createWebsiteAuthWindow(loginUrl);
-        return { success: true };
-      } catch (error) {
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        };
-      }
-    });
-
-    // Handle authentication success from website
-    ipcMain.handle('auth-success', async (_, userData) => {
-      try {
-        console.log('Authentication successful:', userData);
-
-        // DON'T close the website auth window immediately - let user click continue button
-        // The window will be closed when user clicks "Return to Application"
-
-        // Update the auth service with user data
-        await authService.setUserAuthenticated(userData);
-
-        // Check for updates immediately after successful login
-        try {
-          const versionInfo = await authService.checkForUpdates();
-          const wasForceLoggedOut = authService.wasUserForceLoggedOut();
-
-          // If update is available, show download prompt
-          if (versionInfo.hasUpdate && versionInfo.updateAvailable) {
-            console.log('Update detected after login:', versionInfo.updateAvailable);
-
-            // Show update dialog with appropriate message
-            const { dialog } = require('electron');
-            const title = wasForceLoggedOut ? 'New Update Required! 🚀' : 'Update Available! 🚀';
-            const message = wasForceLoggedOut
-              ? `A new version (v${versionInfo.updateAvailable.version}) has been released and requires your attention!`
-              : `A new version (v${versionInfo.updateAvailable.version}) is available!`;
-            const detail = wasForceLoggedOut
-              ? `We've updated the app with important improvements:\n\n${versionInfo.updateAvailable.releaseNotes}\n\nPlease download the latest version to continue using all features.`
-              : `${versionInfo.updateAvailable.releaseNotes}\n\nWould you like to download the update now?`;
-
-            const result = await dialog.showMessageBox(null, {
-              type: 'info',
-              title,
-              message,
-              detail,
-              buttons: ['Download Update', 'Later'],
-              defaultId: 0,
-              cancelId: 1,
-              icon: undefined // You can add an icon path here if you have one
-            });
-
-            if (result.response === 0) {
-              // User clicked "Download Update"
-              const { shell } = require('electron');
-              shell.openExternal(versionInfo.updateAvailable.downloadUrl);
-              console.log('Opening download URL:', versionInfo.updateAvailable.downloadUrl);
-            }
-
-            // Clear the force logout flag after showing the update prompt
-            authService.clearForceLogoutFlag();
-          } else if (wasForceLoggedOut) {
-            // User was forced to log out but no app update available - just clear the flag
-            authService.clearForceLogoutFlag();
-          }
-        } catch (updateError) {
-          console.error('Failed to check for updates after login:', updateError);
-          // Don't fail the login process if update check fails
-          // Still clear the force logout flag
-          if (authService.wasUserForceLoggedOut()) {
-            authService.clearForceLogoutFlag();
-          }
-        }
-
-        // Notify the main window about authentication state change
-        if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-          this.mainWindow.webContents.send('auth-state-changed', {
-            isAuthenticated: true,
-            user: authService.getUser()
-          });
-        }
-
-        return { success: true };
-      } catch (error) {
-        console.error('Error handling auth success:', error);
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        };
-      }
-    });
-
-    // Handle user clicking "Return to Application" button
-    ipcMain.handle('continue-to-application', async () => {
-      try {
-        console.log('User clicked continue to application');
-
-        // Close the website auth window
-        if (this.websiteAuthWindow && !this.websiteAuthWindow.isDestroyed()) {
-          console.log('Closing website auth window...');
-          this.websiteAuthWindow.close();
-          this.websiteAuthWindow = null;
-          console.log('Website auth window closed successfully');
-        }
-
-        // Now that user is authenticated, trigger the main app flow
-        console.log('User authenticated, transitioning to main app...');
-
-        // Ensure main window is focused and visible
-        if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-          console.log('Focusing main window...');
-          this.mainWindow.focus();
-          this.mainWindow.show();
-        }
-
-        // Trigger the onboarding/explanation flow
-        console.log('Creating explanation window...');
-        this.checkAndShowOnboarding();
-
-        return { success: true };
-      } catch (error) {
-        console.error('Error handling continue to application:', error);
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        };
-      }
-    });
-
-    // Handle authentication state refresh
-    ipcMain.handle('auth-refresh-state', async () => {
-      try {
-        const isAuthenticated = authService.isAuthenticated();
-        const user = authService.getUser();
-
-        return {
-          success: true,
-          isAuthenticated,
-          user
-        };
-      } catch (error) {
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        };
-      }
-    });
-
-    // Handle session info requests
-    ipcMain.handle('get-session-info', async () => {
-      try {
-        const sessionInfo = authService.getSessionInfo();
-        return { success: true, sessionInfo };
-      } catch (error) {
-        console.error('Error getting session info:', error);
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        };
-      }
-    });
-
-    // Handle session extension
-    ipcMain.handle('extend-session', async () => {
-      try {
-        authService.extendSession();
-        return { success: true };
-      } catch (error) {
-        console.error('Error extending session:', error);
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        };
-      }
-    });
-
-    // Handle version check requests
-    ipcMain.handle('check-for-updates', async () => {
-      try {
-        const versionInfo = await authService.checkForUpdates();
-        return { success: true, versionInfo };
-      } catch (error) {
-        console.error('Error checking for updates:', error);
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        };
-      }
-    });
-
-    // Handle force version check (for manual refresh)
-    ipcMain.handle('force-version-check', async () => {
-      try {
-        const requiresReauth = await authService.forceVersionCheck();
-        return { success: true, requiresReauth };
-      } catch (error) {
-        console.error('Error in force version check:', error);
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        };
-      }
-    });
-
-    // Handle logout
-    ipcMain.handle('auth-logout', async () => {
-      try {
-        await authService.logout();
-
-        // Close explanation window if open
-        if (this.explanationWindow && !this.explanationWindow.isDestroyed()) {
-          this.explanationWindow.close();
-          this.explanationWindow = null;
-        }
-
-        // Notify the main window about authentication state change
-        if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-          this.mainWindow.webContents.send('auth-state-changed', {
-            isAuthenticated: false,
-            user: null
-          });
-        }
-
-        // Show logout notification
-        this.showNotification(
-          'Logged Out',
-          'You have been logged out. Please log in again to continue.'
-        );
-
-        return { success: true };
-      } catch (error) {
-        console.error('Error during logout:', error);
         return {
           success: false,
           error: error instanceof Error ? error.message : 'Unknown error'

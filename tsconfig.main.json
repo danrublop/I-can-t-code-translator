@@ -23,7 +23,6 @@
   "include": [
     "src/main/main.ts",
     "src/main/preload.ts",
-    "src/main/preload-website.ts",
     "src/main/services/**/*"
   ],
   "exclude": [

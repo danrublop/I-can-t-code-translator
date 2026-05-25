@@ -4,8 +4,6 @@ const HtmlWebpackPlugin = require('html-webpack-plugin');
 module.exports = {
   mode: 'production',
   entry: {
-    toolbar: './src/renderer/toolbar.tsx',
-    explanation: './src/renderer/explanation.tsx',
     panel: './src/renderer/panel.tsx',
     notebook: './src/renderer/notebook.tsx'
   },
@@ -40,16 +38,6 @@ module.exports = {
     ]
   },
   plugins: [
-    new HtmlWebpackPlugin({
-      template: './src/renderer/toolbar.html',
-      filename: 'toolbar.html',
-      chunks: ['toolbar']
-    }),
-    new HtmlWebpackPlugin({
-      template: './src/renderer/explanation.html',
-      filename: 'explanation.html',
-      chunks: ['explanation']
-    }),
     new HtmlWebpackPlugin({
       template: './src/renderer/panel.html',
       filename: 'panel.html',

@@ -22,7 +22,6 @@
   },
   "include": [
     "src/main/main.ts",
-    "src/main/preload.ts",
     "src/main/preload-panel.ts",
     "src/main/preload-notebook.ts",
     "src/main/services/**/*"

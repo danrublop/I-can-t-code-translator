@@ -4,9 +4,9 @@
   "description": "Llamas Remote — query selected text and screenshots with local LLMs from the macOS notch; a private chat + notebook.",
   "main": "dist/main/main.js",
   "scripts": {
-    "dev": "concurrently \"npm run watch:renderer\" \"npm run build:main\" \"wait-on dist/explanation.js && electron .\"",
+    "dev": "concurrently \"npm run watch:renderer\" \"npm run build:main\" \"wait-on dist/panel.js && electron .\"",
     "dev:renderer": "webpack serve --mode development",
-    "dev:hot": "concurrently \"npm run watch:renderer\" \"npm run build:main\" \"wait-on dist/explanation.js && electron .\"",
+    "dev:hot": "concurrently \"npm run watch:renderer\" \"npm run build:main\" \"wait-on dist/panel.js && electron .\"",
     "watch:renderer": "webpack --mode development --watch",
     "build:renderer": "tsc -p tsconfig.renderer.json && webpack --mode development",
     "build:main": "tsc -p tsconfig.main.json",

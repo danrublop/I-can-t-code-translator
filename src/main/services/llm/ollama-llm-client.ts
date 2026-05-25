@@ -105,9 +105,34 @@ export class OllamaLlmClient implements LlmClient {
         if (error.code === 'ETIMEDOUT') {
           throw new Error('Ollama request timed out.');
         }
-        throw new Error(`Ollama API error: ${error.message}`);
+        // Read Ollama's actual error body (the response is a stream) for a useful message,
+        // e.g. "model 'X' not found" or "this model does not support images".
+        const detail = await readStreamMessage(error.response?.data);
+        const status = error.response?.status;
+        throw new Error(`Ollama error${status ? ` (${status})` : ''}: ${detail || error.message}`);
       }
       throw error;
     }
   }
+}
+
+/** Best-effort read of an error response stream into Ollama's `{error}` message. */
+async function readStreamMessage(stream: unknown): Promise<string> {
+  if (!stream || typeof (stream as { on?: unknown }).on !== 'function') return '';
+  return await new Promise<string>((resolve) => {
+    let data = '';
+    const s = stream as NodeJS.ReadableStream;
+    const done = () => {
+      try {
+        const j = JSON.parse(data);
+        resolve(typeof j.error === 'string' ? j.error : data.slice(0, 200));
+      } catch {
+        resolve(data.slice(0, 200));
+      }
+    };
+    s.on('data', (c: Buffer) => { data += c.toString(); });
+    s.on('end', done);
+    s.on('error', () => resolve(''));
+    setTimeout(done, 2000);
+  });
 }

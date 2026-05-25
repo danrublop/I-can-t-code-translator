@@ -40,6 +40,29 @@ const ACTIONS = [
 
 type Status = 'idle' | 'running' | 'done' | 'error';
 
+// Circular "context" meter: a ring that fills with the queued selection's size and shows
+// the percent inside (like a cursor download/progress ring).
+function CircleMeter({ pct, size = 22 }: { pct: number; size?: number }) {
+  const stroke = 2.5;
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const offset = c * (1 - Math.max(0, Math.min(100, pct)) / 100);
+  const center = size / 2;
+  return (
+    <span className="meter" title={`${pct}% of context budget queued`}>
+      <svg width={size} height={size}>
+        <circle cx={center} cy={center} r={r} fill="none" stroke="rgba(255,255,255,0.18)" strokeWidth={stroke} />
+        <circle
+          cx={center} cy={center} r={r} fill="none" stroke="var(--accent)" strokeWidth={stroke}
+          strokeDasharray={c} strokeDashoffset={offset} strokeLinecap="round"
+          transform={`rotate(-90 ${center} ${center})`}
+        />
+      </svg>
+      <span className="meter-pct">{pct}</span>
+    </span>
+  );
+}
+
 function Panel() {
   const [expanded, setExpanded] = useState(false);
   const [selection, setSelection] = useState('');
@@ -170,7 +193,8 @@ function Panel() {
 
   const hasSelection = selection.trim().length > 0;
   const selChars = selection.trim().length;
-  const ctxLabel = selChars > 999 ? `${(selChars / 1000).toFixed(1)}k` : String(selChars);
+  // % of a rough context budget (~8000 chars) the selection fills; min 1% when non-empty.
+  const ctxPct = hasSelection ? Math.max(1, Math.min(100, Math.round((selChars / 8000) * 100))) : 0;
   const busy = status === 'running';
 
   return (
@@ -187,7 +211,7 @@ function Panel() {
           <span className="c-left">{model ? <BrandIcon model={model} size={16} /> : <span className="dot" />}</span>
           <span className="c-right">
             {hasSelection
-              ? <span className="ctx-count" title={`${selChars.toLocaleString()} characters queued`}><span className="ctx-dot" />{ctxLabel}</span>
+              ? <CircleMeter pct={ctxPct} />
               : <span className="bars"><i /><i /><i /><i /></span>}
           </span>
         </div>

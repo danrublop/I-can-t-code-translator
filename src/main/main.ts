@@ -218,9 +218,12 @@ class MainProcess {
 
   private createTray(): void {
     try {
-      const iconPath = join(app.getAppPath(), 'build-resources', 'icon.png');
-      let image = nativeImage.createFromPath(iconPath);
-      if (!image.isEmpty()) image = image.resize({ width: 18, height: 18 });
+      // Menu-bar template image (the gamepad-directional symbol). Template = monochrome
+      // black+alpha; macOS recolors it for the light/dark menu bar. The @2x sibling is
+      // auto-loaded for Retina.
+      const iconPath = join(app.getAppPath(), 'build-resources', 'trayTemplate.png');
+      const image = nativeImage.createFromPath(iconPath);
+      if (!image.isEmpty()) image.setTemplateImage(true);
       this.tray = new Tray(image.isEmpty() ? nativeImage.createEmpty() : image);
       this.tray.setToolTip('Llamas Remote');
       const menu = Menu.buildFromTemplate([

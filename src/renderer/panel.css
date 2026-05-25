@@ -12,7 +12,7 @@
   --muted: #98989f;
   --hairline: rgba(255, 255, 255, 0.10);
   --accent: #d8a657;            /* warm amber */
-  --notch-w: 200px;             /* approx physical notch width — tune per machine */
+  --notch-w: 170px;             /* approx physical notch width — tune per machine */
   --nub-h: 40px;                /* taller than the menu bar (~33px) so it fully covers the top */
   --radius: 14px;
   --mono: 'JetBrains Mono', 'SF Mono', menlo, monospace;
@@ -43,8 +43,8 @@ body { font-family: var(--sans); color: var(--ink); -webkit-font-smoothing: anti
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  /* collapsed: a bar wide enough to span the notch with content at each end */
-  width: calc(var(--notch-w) + 160px);
+  /* collapsed: hugs the notch — just enough room for the dot + waveform at each end */
+  width: calc(var(--notch-w) + 56px);
   height: var(--nub-h);
   transition: width 0.28s var(--ease), height 0.28s var(--ease);
   cursor: pointer;

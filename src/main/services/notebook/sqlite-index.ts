@@ -46,6 +46,26 @@ export class SqliteNotebookIndex implements NotebookIndex {
     this.db.pragma('journal_mode = WAL');
     this.db.prepare(CREATE_ENTRIES).run();
     this.db.prepare(CREATE_FTS).run();
+    this.migrate();
+  }
+
+  // Add any columns missing from an older `entries` table (CREATE TABLE IF NOT EXISTS
+  // won't alter an existing table, so DBs created before title/pinned were added break).
+  private migrate(): void {
+    const cols = new Set(
+      (this.db.prepare('PRAGMA table_info(entries)').all() as Array<{ name: string }>).map((r) => r.name),
+    );
+    const ensure = (name: string, ddl: string) => {
+      if (!cols.has(name)) this.db.prepare(`ALTER TABLE entries ADD COLUMN ${ddl}`).run();
+    };
+    ensure('title', 'title TEXT');
+    ensure('model', 'model TEXT');
+    ensure('source_app', 'source_app TEXT');
+    ensure('source_kind', 'source_kind TEXT');
+    ensure('created_at', 'created_at TEXT');
+    ensure('pinned', 'pinned INTEGER NOT NULL DEFAULT 0');
+    ensure('indexed_mtime_ms', 'indexed_mtime_ms REAL NOT NULL DEFAULT 0');
+    ensure('tombstoned', 'tombstoned INTEGER NOT NULL DEFAULT 0');
   }
 
   allRows(): IndexRow[] {

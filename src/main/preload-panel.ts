@@ -41,6 +41,8 @@ const api = {
   listModels: (): Promise<string[]> => ipcRenderer.invoke('panel:models'),
   /** Open the notebook window now (watch the answer stream in). */
   openNotebook: () => ipcRenderer.send('open-notebook'),
+  /** Capture the current selection on demand (used when the panel opens via hover). */
+  requestCapture: (): Promise<{ selection: string; sourceApp?: string; empty: boolean }> => ipcRenderer.invoke('panel:capture'),
   /** Full-text search the notebook. */
   search: (query: string) => ipcRenderer.invoke('panel:search', query) as Promise<Array<{ id: string; snippet: string; tags: string[] }>>,
   /** Collapse the panel back to the idle island. */

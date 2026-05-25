@@ -18,6 +18,7 @@ interface LlamasAPI {
   captureScreenshot: () => Promise<string | null>;
   listModels: () => Promise<string[]>;
   openNotebook: () => void;
+  requestCapture: () => Promise<{ selection: string; sourceApp?: string; empty: boolean }>;
   close: () => void;
   setInteractive: (on: boolean) => void;
   onCaptured: (cb: (data: PanelCaptured) => void) => () => void;
@@ -60,10 +61,19 @@ function Panel() {
     window.llamasAPI.setInteractive(on);
   }, []);
 
-  const open = useCallback(() => {
+  const open = useCallback((doCapture = true) => {
     if (collapseTimer.current) { clearTimeout(collapseTimer.current); collapseTimer.current = null; }
+    const wasCollapsed = !expandedRef.current;
     setExpanded(true);
     setInteractive(true);
+    // Grab the selection as we open (source app is still frontmost — the panel becomes
+    // mouse-interactive without taking key focus). Skip when main already captured (hotkey).
+    if (wasCollapsed && doCapture) {
+      window.llamasAPI.requestCapture().then((r) => {
+        setSelection(r.selection);
+        setSourceApp(r.sourceApp);
+      }).catch(() => {});
+    }
   }, [setInteractive]);
 
   const collapseNow = useCallback(() => {
@@ -98,7 +108,7 @@ function Panel() {
       setSourceApp(data.sourceApp);
       setStatus('idle'); setError('');
     });
-    const offExpand = window.llamasAPI.onExpand(() => { pinnedRef.current = true; open(); });
+    const offExpand = window.llamasAPI.onExpand(() => { pinnedRef.current = true; open(false); });
     const offCollapse = window.llamasAPI.onCollapse(() => collapseNow());
     return () => { offCap(); offExpand(); offCollapse(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -114,6 +124,10 @@ function Panel() {
   }
 
   function runAction(presetId: string) {
+    if (!selection.trim() && !freeText.trim()) {
+      setError('Select text first, or type a question'); setStatus('error');
+      return;
+    }
     fire({ kind: 'text', presetId, selection, sourceApp, freeText: freeText.trim() || undefined });
   }
 
@@ -155,17 +169,20 @@ function Panel() {
               {hasSelection ? `Selected${sourceApp ? ` · ${sourceApp}` : ''}` : 'No selection'}
             </span>
             <span className="spacer" />
-            <button className="ghost-btn" onClick={screenshot} disabled={busy} title="Screenshot a region">⌖ Screenshot</button>
+            <button className="ghost-btn" onClick={() => window.llamasAPI.openNotebook()} title="Open notebook">▤ Notebook</button>
           </div>
 
-          <input
-            className="ask-input"
-            placeholder={hasSelection ? 'Add a follow-up (optional)…' : 'Type a question…'}
-            value={freeText}
-            onFocus={() => { pinnedRef.current = true; }}
-            onChange={(e) => setFreeText(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') fire({ kind: 'text', selection, sourceApp, freeText: freeText.trim() || undefined }); if (e.key === 'Escape') { collapseNow(); window.llamasAPI.close(); } }}
-          />
+          <div className="input-row">
+            <input
+              className="ask-input"
+              placeholder={hasSelection ? 'Add a follow-up (optional)…' : 'Type a question…'}
+              value={freeText}
+              onFocus={() => { pinnedRef.current = true; }}
+              onChange={(e) => setFreeText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') fire({ kind: 'text', selection, sourceApp, freeText: freeText.trim() || undefined }); if (e.key === 'Escape') { collapseNow(); window.llamasAPI.close(); } }}
+            />
+            <button className="icon-btn" onClick={screenshot} disabled={busy} title="Screenshot a region">⌖</button>
+          </div>
 
           <div className="actions">
             {ACTIONS.map((a) => (

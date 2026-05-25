@@ -322,6 +322,20 @@ class MainProcess {
       }
     });
 
+    // On-demand capture when the panel opens (hover/click), while the source app is still
+    // frontmost. The panel becomes mouse-interactive without taking key focus, so a
+    // synthetic Cmd+C still targets the app the user was in.
+    ipcMain.handle('panel:capture', async () => {
+      if (!this.captureProvider) return { selection: '', sourceApp: undefined, empty: true };
+      try {
+        const r = await this.captureProvider.captureSelection();
+        return { selection: r.text, sourceApp: r.sourceApp, empty: r.text.trim().length === 0 };
+      } catch (e) {
+        console.warn('panel:capture failed:', e);
+        return { selection: '', sourceApp: undefined, empty: true };
+      }
+    });
+
     // Open the notebook window immediately (the panel's Open button) to watch streaming.
     ipcMain.on('open-notebook', () => this.showNotebook());
 

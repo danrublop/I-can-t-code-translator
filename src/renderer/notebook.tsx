@@ -7,6 +7,7 @@ interface NotebookMeta { prompt: string; selection: string; sourceApp?: string; 
 interface NoteSummary { id: string; title: string; snippet: string; sourceApp?: string; pinned: boolean; createdAt: string }
 interface NotebookAPI {
   list: () => Promise<NoteSummary[]>;
+  search: (query: string) => Promise<Array<{ id: string; snippet: string; tags: string[] }>>;
   getBody: (id: string) => Promise<string | null>;
   rename: (id: string, title: string) => Promise<void>;
   setPinned: (id: string, pinned: boolean) => Promise<void>;
@@ -30,6 +31,9 @@ function Notebook() {
   const [streamErr, setStreamErr] = useState('');
   const [font, setFont] = useState(localStorage.getItem('nb-font') || 'Inter');
   const [size, setSize] = useState(localStorage.getItem('nb-size') || '16');
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<NoteSummary[] | null>(null); // null = not searching
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const editorRef = useRef<HTMLDivElement>(null);
   const selectedRef = useRef<string | null>(null);
   const streamingRef = useRef(false);
@@ -111,6 +115,21 @@ function Notebook() {
   function applyFont(f: string) { setFont(f); localStorage.setItem('nb-font', f); }
   function applySize(s: string) { setSize(s); localStorage.setItem('nb-size', s); }
 
+  function onSearch(q: string) {
+    setQuery(q);
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    if (!q.trim()) { setResults(null); return; }
+    searchTimer.current = setTimeout(async () => {
+      const hits = await window.notebookAPI.search(q);
+      // Map FTS hits to sidebar rows, pulling titles from the loaded list where available.
+      const byId = new Map(notes.map((n) => [n.id, n]));
+      setResults(hits.map((h) => {
+        const n = byId.get(h.id);
+        return { id: h.id, title: n?.title ?? h.snippet, snippet: h.snippet, sourceApp: n?.sourceApp, pinned: n?.pinned ?? false, createdAt: n?.createdAt ?? '' };
+      }));
+    }, 180);
+  }
+
   function newNote() {
     streamingRef.current = false; setStreaming('idle');
     setSelectedId(null); setTitle('');
@@ -126,9 +145,11 @@ function Notebook() {
           <h2>Notes</h2>
           <button className="new-btn" onClick={newNote} title="New note">+</button>
         </div>
+        <input className="search-input" placeholder="Search notes…" value={query} onChange={(e) => onSearch(e.target.value)} />
         <div className="note-list">
-          {notes.length === 0 && <div className="empty-list">No notes yet.<br />Capture text and pick an action.</div>}
-          {notes.map((n) => (
+          {(() => { const shown = results ?? notes; return (<>
+          {shown.length === 0 && <div className="empty-list">{results ? 'No matches.' : <>No notes yet.<br />Capture text and pick an action.</>}</div>}
+          {shown.map((n) => (
             <div key={n.id} className={`note-row${selectedId === n.id ? ' selected' : ''}`} onClick={() => selectNote(n.id)}>
               <div className="body">
                 <div className="title">{n.title}</div>
@@ -137,6 +158,7 @@ function Notebook() {
               <button className={`pin${n.pinned ? ' on' : ''}`} onClick={(e) => togglePin(e, n)} title={n.pinned ? 'Unpin' : 'Pin'}>📌</button>
             </div>
           ))}
+          </>); })()}
         </div>
       </aside>
 

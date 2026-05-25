@@ -21,6 +21,7 @@ export interface NoteSummary {
 const api = {
   // Notes-app operations
   list: (): Promise<NoteSummary[]> => ipcRenderer.invoke('notebook:list'),
+  search: (query: string): Promise<Array<{ id: string; snippet: string; tags: string[] }>> => ipcRenderer.invoke('notebook:search', query),
   getBody: (id: string): Promise<string | null> => ipcRenderer.invoke('notebook:get', id),
   rename: (id: string, title: string): Promise<void> => ipcRenderer.invoke('notebook:rename', id, title),
   setPinned: (id: string, pinned: boolean): Promise<void> => ipcRenderer.invoke('notebook:pin', id, pinned),

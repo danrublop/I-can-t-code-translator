@@ -19,14 +19,14 @@ describe('routeModel', () => {
     expect(routeModel({ kind: 'image', preset: preset({ defaultModel: 'mistral' }) }, config).model).toBe('llava');
   });
 
-  it('prefers the preset default model for text', () => {
+  it('lets the user-selected model win over a preset default for text', () => {
     const r = routeModel({ kind: 'text', preset: preset({ defaultModel: 'qwen2.5-coder' }), userSelectedModel: 'mistral' }, config);
-    expect(r.model).toBe('qwen2.5-coder');
+    expect(r.model).toBe('mistral');
   });
 
-  it('falls back to the user-selected model when the preset has none', () => {
-    const r = routeModel({ kind: 'text', preset: preset(), userSelectedModel: 'mistral' }, config);
-    expect(r.model).toBe('mistral');
+  it('uses the preset default model when the user picked nothing', () => {
+    const r = routeModel({ kind: 'text', preset: preset({ defaultModel: 'qwen2.5-coder' }) }, config);
+    expect(r.model).toBe('qwen2.5-coder');
   });
 
   it('falls back to the global default text model when nothing else applies', () => {

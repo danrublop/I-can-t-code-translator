@@ -72,7 +72,7 @@ function Notebook() {
       setEditor('');
     });
     const offToken = window.notebookAPI.onToken((p) => { if (streamingRef.current) setEditor(p); });
-    const offDone = window.notebookAPI.onDone((a) => setEditor(a));
+    const offDone = window.notebookAPI.onDone((a) => { if (streamingRef.current) setEditor(a); });
     const offErr = window.notebookAPI.onError((msg) => { streamingRef.current = false; setStreaming('error'); setStreamErr(msg); });
     const offSaved = window.notebookAPI.onSaved(async (id) => {
       streamingRef.current = false; setStreaming('idle');

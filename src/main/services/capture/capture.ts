@@ -62,6 +62,10 @@ export async function captureViaClipboard(
   const delay = options.captureDelayMs ?? 150;
 
   // Save the user's clipboard so we can put it back no matter what happens.
+  // NOTE: only the TEXT representation is snapshotted/restored. If the user had a
+  // non-text clipboard (image/file/RTF), this fallback path loses it. Acceptable for now
+  // since this only runs when the accessibility read fails; revisit with full-format
+  // snapshot/restore if it becomes a real annoyance.
   const saved = clipboard.readText();
   try {
     // Clear first so a stale value isn't mistaken for the selection.

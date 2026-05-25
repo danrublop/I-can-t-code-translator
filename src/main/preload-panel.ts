@@ -33,7 +33,7 @@ export interface PanelCaptured {
 }
 
 const api = {
-  /** Run a query end to end; partial tokens arrive via onToken. */
+  /** Run a query end to end (the answer streams into the notebook window, not here). */
   runQuery: (req: PanelQueryRequest): Promise<PanelQueryResult> => ipcRenderer.invoke('panel:run-query', req),
   /** Trigger interactive region screenshot; returns the saved path or null (cancel). */
   captureScreenshot: (): Promise<string | null> => ipcRenderer.invoke('panel:screenshot'),
@@ -43,19 +43,11 @@ const api = {
   openNotebook: () => ipcRenderer.send('open-notebook'),
   /** Capture the current selection on demand (used when the panel opens via hover). */
   requestCapture: (): Promise<{ selection: string; sourceApp?: string; empty: boolean }> => ipcRenderer.invoke('panel:capture'),
-  /** Full-text search the notebook. */
-  search: (query: string) => ipcRenderer.invoke('panel:search', query) as Promise<Array<{ id: string; snippet: string; tags: string[] }>>,
   /** Collapse the panel back to the idle island. */
   close: () => ipcRenderer.send('panel:close'),
   /** Toggle whether the window captures mouse events (true) or is click-through (false). */
   setInteractive: (on: boolean) => ipcRenderer.send('panel:set-interactive', on),
 
-  /** Streaming answer tokens (cumulative string). */
-  onToken: (cb: (partial: string) => void) => {
-    const h = (_e: unknown, partial: string) => cb(partial);
-    ipcRenderer.on('panel:token', h);
-    return () => ipcRenderer.removeListener('panel:token', h);
-  },
   /** Fired when the hotkey captured a selection (prefill the panel). */
   onCaptured: (cb: (data: PanelCaptured) => void) => {
     const h = (_e: unknown, data: PanelCaptured) => cb(data);

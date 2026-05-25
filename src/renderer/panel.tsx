@@ -64,6 +64,7 @@ function Panel() {
   const open = useCallback((doCapture = true) => {
     if (collapseTimer.current) { clearTimeout(collapseTimer.current); collapseTimer.current = null; }
     const wasCollapsed = !expandedRef.current;
+    expandedRef.current = true; // set synchronously so rapid mousemoves don't re-open/re-capture
     setExpanded(true);
     setInteractive(true);
     // Grab the selection as we open (source app is still frontmost — the panel becomes

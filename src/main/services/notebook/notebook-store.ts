@@ -29,6 +29,14 @@ export class NotebookStore {
 
   /** Persist a new/edited entry: write the file, then mirror it into the index. */
   save(entry: NotebookEntry): void {
+    this.persist(entry);
+  }
+
+  // Write the entry's markdown file (source of truth) and upsert the index with the
+  // freshly-written file's mtime + all metadata. Used by save and every in-app mutation,
+  // so the file's frontmatter (model/source_kind/created_at) is never clobbered and the
+  // index mtime stays in lockstep with disk (no spurious reindex on next launch).
+  private persist(entry: NotebookEntry): void {
     const path = this.files.write(entry);
     const mtimeMs = statSync(path).mtimeMs;
     this.index.upsert({
@@ -55,45 +63,25 @@ export class NotebookStore {
     return this.index.getBody(id);
   }
 
-  /** Rename a note (index + mirror to the markdown file's frontmatter). */
+  /** Rename a note (preserves all other fields on disk + index). */
   rename(id: string, title: string): void {
-    this.index.setTitle(id, title);
-    this.rewriteFile(id);
+    const e = this.files.read(id);
+    if (e) this.persist({ ...e, title });
+    else this.index.setTitle(id, title);
   }
 
   /** Pin/unpin a note. */
   setPinned(id: string, pinned: boolean): void {
-    this.index.setPinned(id, pinned);
-    this.rewriteFile(id);
+    const e = this.files.read(id);
+    if (e) this.persist({ ...e, pinned });
+    else this.index.setPinned(id, pinned);
   }
 
-  /** Update a note body from an in-app edit (index + markdown file). */
+  /** Update a note body from an in-app edit (preserves metadata + refreshes mtime). */
   updateBody(id: string, body: string): void {
-    this.index.updateBody(id, body);
-    this.rewriteFile(id, body);
-  }
-
-  // Re-mirror the index row back to its markdown file so on-disk frontmatter/body stay
-  // in sync with in-app edits. Best-effort.
-  private rewriteFile(id: string, bodyOverride?: string): void {
-    const existing = this.files.read(id);
-    const body = bodyOverride ?? this.index.getBody(id) ?? existing?.body ?? '';
-    const summary = this.index.list().find((n) => n.id === id);
-    try {
-      this.files.write({
-        id,
-        title: summary?.title ?? existing?.title ?? '',
-        body,
-        tags: existing?.tags ?? [],
-        model: '',
-        sourceApp: summary?.sourceApp ?? '',
-        sourceKind: 'text',
-        pinned: summary?.pinned ?? existing?.pinned ?? false,
-        createdAt: summary?.createdAt || new Date().toISOString(),
-      });
-    } catch {
-      // ignore mirror failures
-    }
+    const e = this.files.read(id);
+    if (e) this.persist({ ...e, body });
+    else this.index.updateBody(id, body);
   }
 
   /** Delete an entry from disk; the next syncFromDisk will tombstone the index row. */

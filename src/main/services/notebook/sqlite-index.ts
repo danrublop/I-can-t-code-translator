@@ -97,7 +97,11 @@ export class SqliteNotebookIndex implements NotebookIndex {
   }
 
   search(query: string): SearchHit[] {
-    if (!query.trim()) return [];
+    // Sanitize into a safe FTS5 query: tokenize on word chars, quote each token (so FTS5
+    // syntax like " ( ) * : - AND/OR can't trigger a syntax error), prefix-match each.
+    const tokens = query.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+    if (tokens.length === 0) return [];
+    const fts = tokens.map((t) => `"${t}"*`).join(' ');
     const rows = this.db
       .prepare(
         `SELECT f.id AS id, snippet(entries_fts, 1, '[', ']', '…', 10) AS snippet, e.tags AS tags
@@ -105,7 +109,7 @@ export class SqliteNotebookIndex implements NotebookIndex {
          WHERE entries_fts MATCH ? AND e.tombstoned = 0
          ORDER BY rank LIMIT 50`,
       )
-      .all(query) as Array<{ id: string; snippet: string; tags: string }>;
+      .all(fts) as Array<{ id: string; snippet: string; tags: string }>;
     return rows.map((r) => ({ id: r.id, snippet: r.snippet, tags: safeParseTags(r.tags) }));
   }
 

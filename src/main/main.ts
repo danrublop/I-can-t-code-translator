@@ -1,6 +1,7 @@
 import { app, BrowserWindow, globalShortcut, ipcMain, Tray, Menu, nativeImage } from 'electron';
 import { join } from 'path';
 import { randomUUID } from 'crypto';
+import { rmSync, existsSync } from 'fs';
 import { OllamaProcessService } from './services/ollama-process.service';
 // Notch panel stack (notch/notebook pivot)
 import { createMacCaptureProvider } from './services/capture/mac-capture';
@@ -30,6 +31,7 @@ class MainProcess {
   private notchPanel: BrowserWindow | null = null;
   private notchReady = false;
   private pendingCaptured: { selection: string; sourceApp?: string; empty: boolean } | null = null;
+  private pendingExpand = false;
   private screenshotInFlight = false;
   private tray: Tray | null = null;
 
@@ -156,19 +158,24 @@ class MainProcess {
       if (this.notchPanel && !this.notchPanel.isDestroyed()) {
         const d = require('electron').screen.getPrimaryDisplay();
         const w = Math.min(820, d.bounds.width);
-        const target = { x: Math.round((d.bounds.width - w) / 2), y: d.bounds.y, width: w, height: 540 };
+        // Force the window to the ABSOLUTE display top (over the menu bar), not the
+        // work-area top — else macOS parks it below the menu bar and the island floats.
         this.notchPanel.setAlwaysOnTop(true, 'screen-saver');
-        this.notchPanel.setBounds(target);
-        // Diagnostic: did macOS honor y=0 or clamp the window below the menu bar?
-        const actual = this.notchPanel.getBounds();
-        console.log('[notch] requested', JSON.stringify(target), '| actual', JSON.stringify(actual),
-          '| display.bounds', JSON.stringify(d.bounds), '| workArea', JSON.stringify(d.workArea));
+        this.notchPanel.setBounds({ x: Math.round((d.bounds.width - w) / 2), y: d.bounds.y, width: w, height: 540 });
       }
-      // Idle: click-through, but forward move events so the renderer can detect hover.
-      this.notchPanel?.setIgnoreMouseEvents(true, { forward: true });
-      if (this.pendingCaptured && this.notchPanel && !this.notchPanel.isDestroyed()) {
+      if (!this.notchPanel || this.notchPanel.isDestroyed()) return;
+      // Flush a capture/expand requested via the hotkey before the window finished loading.
+      if (this.pendingCaptured) {
         this.notchPanel.webContents.send('panel:captured', this.pendingCaptured);
         this.pendingCaptured = null;
+      }
+      if (this.pendingExpand) {
+        this.notchPanel.webContents.send('panel:expand');
+        this.notchPanel.setIgnoreMouseEvents(false);
+        this.pendingExpand = false;
+      } else {
+        // Idle: click-through, but forward move events so the renderer can detect hover.
+        this.notchPanel.setIgnoreMouseEvents(true, { forward: true });
       }
     });
 
@@ -206,12 +213,13 @@ class MainProcess {
     if (this.notchReady && !panel.isDestroyed()) {
       panel.webContents.send('panel:captured', captured);
       panel.webContents.send('panel:expand');
+      panel.setIgnoreMouseEvents(false); // interactive so the expanded panel takes input
     } else {
-      this.pendingCaptured = captured; // flushed on did-finish-load
+      // Window still loading — flush both on did-finish-load (and become interactive then).
+      this.pendingCaptured = captured;
+      this.pendingExpand = true;
     }
 
-    // Becoming interactive so the expanded panel can take input.
-    panel.setIgnoreMouseEvents(false);
     panel.show();
     panel.focus();
   }
@@ -320,6 +328,11 @@ class MainProcess {
         this.sendNotebook('notebook:error', message);
         if (req.autoOpen !== false) this.showNotebook();
         return { ok: false, error: message };
+      } finally {
+        // Clean up the temp screenshot once the model has consumed it.
+        if (req.kind === 'image' && req.imagePath && existsSync(req.imagePath)) {
+          try { rmSync(req.imagePath); } catch { /* ignore */ }
+        }
       }
     });
 

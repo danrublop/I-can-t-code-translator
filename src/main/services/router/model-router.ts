@@ -32,22 +32,23 @@ export interface RouteResult {
  * Resolve which local model should answer this query.
  *
  * Precedence:
- *   image input              -> visionModel              (vision auto-detect)
+ *   image input                -> visionModel            (vision is required for images)
+ *   text + userSelectedModel   -> that model             (explicit pick wins)
  *   text + preset.defaultModel -> that model
- *   text + userSelectedModel   -> that model
  *   text (nothing else)        -> defaultTextModel
  */
 export function routeModel(input: RouteInput, config: RouterConfig): RouteResult {
   if (input.kind === 'image') {
+    // Images need a vision-capable model; the text picker can't be trusted to be one.
     return { model: config.visionModel, reason: 'image input routed to vision model' };
-  }
-
-  if (input.preset?.defaultModel) {
-    return { model: input.preset.defaultModel, reason: `preset "${input.preset.id}" default model` };
   }
 
   if (input.userSelectedModel) {
     return { model: input.userSelectedModel, reason: 'user-selected model' };
+  }
+
+  if (input.preset?.defaultModel) {
+    return { model: input.preset.defaultModel, reason: `preset "${input.preset.id}" default model` };
   }
 
   return { model: config.defaultTextModel, reason: 'default text model' };

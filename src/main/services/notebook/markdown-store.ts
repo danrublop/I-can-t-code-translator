@@ -55,13 +55,8 @@ export function serializeEntry(entry: NotebookEntry): string {
   return `${fm}${entry.body}\n`;
 }
 
-interface ParsedFile {
-  id: string;
-  title: string;
-  tags: string[];
-  pinned: boolean;
-  body: string;
-}
+/** Full parse of an entry file — every frontmatter field plus body. */
+type ParsedFile = NotebookEntry;
 
 /** Parse our own frontmatter format. Returns null if the block is missing/malformed. */
 export function parseEntry(text: string): ParsedFile | null {
@@ -72,25 +67,30 @@ export function parseEntry(text: string): ParsedFile | null {
   const header = text.slice(3, end).trim();
   const body = text.slice(end + 4).replace(/^\n/, '');
 
-  let id = '';
-  let title = '';
-  let pinned = false;
-  let tags: string[] = [];
+  const e: NotebookEntry = {
+    id: '', title: '', body: '', tags: [], model: '', sourceApp: '',
+    sourceKind: 'text', pinned: false, createdAt: '',
+  };
   for (const line of header.split('\n')) {
     const idx = line.indexOf(':');
     if (idx === -1) continue;
     const key = line.slice(0, idx).trim();
     const val = line.slice(idx + 1).trim();
-    if (key === 'id') id = unesc(val);
-    else if (key === 'title') title = unesc(val);
-    else if (key === 'pinned') pinned = val === 'true';
+    if (key === 'id') e.id = unesc(val);
+    else if (key === 'title') e.title = unesc(val);
+    else if (key === 'model') e.model = unesc(val);
+    else if (key === 'source_app') e.sourceApp = unesc(val);
+    else if (key === 'source_kind') e.sourceKind = val === 'image' ? 'image' : 'text';
+    else if (key === 'created_at') e.createdAt = unesc(val);
+    else if (key === 'pinned') e.pinned = val === 'true';
     else if (key === 'tags') {
       const inner = val.replace(/^\[/, '').replace(/\]$/, '').trim();
-      tags = inner.length ? inner.split(',').map((t) => unesc(t)).filter(Boolean) : [];
+      e.tags = inner.length ? inner.split(',').map((t) => unesc(t)).filter(Boolean) : [];
     }
   }
-  if (!id) return null;
-  return { id, title, pinned, tags, body: body.replace(/\n$/, '') };
+  if (!e.id) return null;
+  e.body = body.replace(/\n$/, '');
+  return e;
 }
 
 export class MarkdownStore {

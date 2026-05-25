@@ -13,7 +13,7 @@
   --hairline: rgba(255, 255, 255, 0.10);
   --accent: #d8a657;            /* warm amber */
   --notch-w: 200px;             /* approx physical notch width — tune per machine */
-  --nub-h: 40px;                /* taller than the menu bar (~33px) so it fully covers the top */
+  --nub-h: 35px;                /* ~menu-bar height so it covers the top strip */
   --radius: 14px;
   --mono: 'JetBrains Mono', 'SF Mono', menlo, monospace;
   --sans: 'Inter', -apple-system, system-ui, sans-serif;

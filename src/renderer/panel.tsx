@@ -167,6 +167,8 @@ function Panel() {
   }
 
   const hasSelection = selection.trim().length > 0;
+  const selChars = selection.trim().length;
+  const ctxLabel = selChars > 999 ? `${(selChars / 1000).toFixed(1)}k` : String(selChars);
   const busy = status === 'running';
 
   return (
@@ -177,12 +179,14 @@ function Panel() {
         onMouseEnter={() => { cancelCollapse(); if (!expandedRef.current) open(); }}
         onMouseLeave={scheduleCollapse}
       >
-        {/* Collapsed: current model logo (left); right shows a "queued" dot when a
-            selection is captured, else the idle waveform (notch sits between). */}
+        {/* Collapsed: current model logo (left); right shows a context counter of the
+            queued selection (chars), else the idle waveform (notch sits between). */}
         <div className="collapsed">
           <span className="c-left">{model ? <BrandIcon model={model} size={16} /> : <span className="dot" />}</span>
           <span className="c-right">
-            {hasSelection ? <span className="ready-dot" title="Selection ready" /> : <span className="bars"><i /><i /><i /><i /></span>}
+            {hasSelection
+              ? <span className="ctx-count" title={`${selChars.toLocaleString()} characters queued`}><span className="ctx-dot" />{ctxLabel}</span>
+              : <span className="bars"><i /><i /><i /><i /></span>}
           </span>
         </div>
 

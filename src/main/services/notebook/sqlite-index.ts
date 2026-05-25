@@ -29,10 +29,13 @@ const CREATE_ENTRIES = `
 
 const CREATE_FTS = `CREATE VIRTUAL TABLE IF NOT EXISTS entries_fts USING fts5(id UNINDEXED, body, tags)`;
 
+function stripHtml(s: string): string {
+  return s.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
 function deriveTitle(title: string | null, body: string): string {
   if (title && title.trim()) return title.trim();
-  const firstLine = body.split('\n').map((l) => l.trim()).find((l) => l.length > 0) ?? '';
-  return firstLine.slice(0, 60) || 'Untitled';
+  return stripHtml(body).slice(0, 60) || 'Untitled';
 }
 
 export class SqliteNotebookIndex implements NotebookIndex {
@@ -117,7 +120,7 @@ export class SqliteNotebookIndex implements NotebookIndex {
     return rows.map((r) => ({
       id: r.id,
       title: deriveTitle(r.title, r.body),
-      snippet: r.body.replace(/\s+/g, ' ').slice(0, 80),
+      snippet: stripHtml(r.body).slice(0, 80),
       sourceApp: r.sourceApp ?? undefined,
       pinned: r.pinned === 1,
       createdAt: r.createdAt ?? '',

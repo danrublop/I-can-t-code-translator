@@ -18,10 +18,13 @@ interface Row {
   tombstoned: boolean;
 }
 
+function stripHtml(s: string): string {
+  return s.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
 function deriveTitle(title: string | undefined, body: string): string {
   if (title && title.trim()) return title.trim();
-  const firstLine = body.split('\n').map((l) => l.trim()).find((l) => l.length > 0) ?? '';
-  return firstLine.slice(0, 60) || 'Untitled';
+  return stripHtml(body).slice(0, 60) || 'Untitled';
 }
 
 export class MemoryNotebookIndex implements NotebookIndex {
@@ -67,7 +70,7 @@ export class MemoryNotebookIndex implements NotebookIndex {
       .map(([id, r]) => ({
         id,
         title: deriveTitle(r.title, r.body),
-        snippet: r.body.replace(/\s+/g, ' ').slice(0, 80),
+        snippet: stripHtml(r.body).slice(0, 80),
         sourceApp: r.sourceApp,
         pinned: r.pinned,
         createdAt: r.createdAt ?? '',

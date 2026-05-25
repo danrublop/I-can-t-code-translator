@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import ReactDOM from 'react-dom/client';
+import DOMPurify from 'dompurify';
 import './notebook.css';
 
 interface NotebookMeta { prompt: string; selection: string; sourceApp?: string; model: string }
@@ -34,11 +35,16 @@ function Notebook() {
   const streamingRef = useRef(false);
   selectedRef.current = selectedId;
 
-  // Editor content is set/read via textContent/innerText only (no innerHTML) — the notes
-  // can contain captured text + model output, so we never inject HTML. Formatting buttons
-  // affect the live editor via execCommand; persisting rich formatting safely (sanitizer)
-  // is a follow-up.
+  // Plain text into the editor (used while streaming).
   const setEditor = (text: string) => { if (editorRef.current) editorRef.current.textContent = text; };
+  // Render a stored body as sanitized HTML so rich formatting (bold/italic/headings)
+  // persists. DOMPurify guards against injected markup from captured text / model output;
+  // we use a DocumentFragment + replaceChildren rather than innerHTML.
+  const renderBody = (body: string) => {
+    if (!editorRef.current) return;
+    const frag = DOMPurify.sanitize(body, { RETURN_DOM_FRAGMENT: true });
+    editorRef.current.replaceChildren(frag);
+  };
 
   const refresh = useCallback(async () => setNotes(await window.notebookAPI.list()), []);
 
@@ -49,7 +55,7 @@ function Notebook() {
     const list = fromList ?? notes;
     setTitle(list.find((n) => n.id === id)?.title ?? '');
     const body = await window.notebookAPI.getBody(id);
-    setEditor(body ?? '');
+    renderBody(body ?? '');
   }, [notes]);
 
   useEffect(() => {
@@ -90,7 +96,10 @@ function Notebook() {
 
   function saveBody() {
     if (selectedRef.current && !streamingRef.current && editorRef.current) {
-      window.notebookAPI.updateBody(selectedRef.current, editorRef.current.innerText).then(refresh).catch(() => {});
+      // Sanitize the edited content to a clean HTML string (DOMPurify reads the node and
+      // returns safe HTML) so formatting persists without an innerHTML round-trip.
+      const html = DOMPurify.sanitize(editorRef.current);
+      window.notebookAPI.updateBody(selectedRef.current, html).then(refresh).catch(() => {});
     }
   }
 

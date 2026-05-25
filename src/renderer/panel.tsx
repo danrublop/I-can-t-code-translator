@@ -13,14 +13,14 @@ interface PanelQueryRequest {
   userSelectedModel?: string;
 }
 interface PanelQueryResult { ok: boolean; answer?: string; model?: string; entryId?: string; error?: string }
-interface PanelCaptured { selection: string; sourceApp?: string; empty: boolean }
+interface PanelCaptured { selection: string; sourceApp?: string; empty: boolean; error?: string }
 interface LlamasAPI {
   runQuery: (req: PanelQueryRequest) => Promise<PanelQueryResult>;
   captureScreenshot: () => Promise<string | null>;
   listModels: () => Promise<string[]>;
   openNotebook: () => void;
   openSettings: () => void;
-  requestCapture: () => Promise<{ selection: string; sourceApp?: string; empty: boolean }>;
+  requestCapture: () => Promise<{ selection: string; sourceApp?: string; empty: boolean; error?: string }>;
   close: () => void;
   setInteractive: (on: boolean) => void;
   onCaptured: (cb: (data: PanelCaptured) => void) => () => void;
@@ -86,6 +86,7 @@ function Panel() {
         window.llamasAPI.requestCapture().then((r) => {
           setSelection(r.selection);
           setSourceApp(r.sourceApp);
+          if (r.error) { setError(r.error); setStatus('error'); }
         }).catch(() => {});
       }
     }
@@ -131,7 +132,8 @@ function Panel() {
     const offCap = window.llamasAPI.onCaptured((data) => {
       setSelection(data.selection);
       setSourceApp(data.sourceApp);
-      setStatus('idle'); setError('');
+      if (data.error) { setError(data.error); setStatus('error'); }
+      else { setStatus('idle'); setError(''); }
     });
     const offExpand = window.llamasAPI.onExpand(() => { pinnedRef.current = true; open(false); });
     const offCollapse = window.llamasAPI.onCollapse(() => collapseNow());

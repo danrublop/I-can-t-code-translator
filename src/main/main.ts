@@ -34,7 +34,7 @@ const VISION_MODEL = 'llava:latest';
 class MainProcess {
   private notchPanel: BrowserWindow | null = null;
   private notchReady = false;
-  private pendingCaptured: { selection: string; sourceApp?: string; empty: boolean } | null = null;
+  private pendingCaptured: { selection: string; sourceApp?: string; empty: boolean; error?: string } | null = null;
   private pendingExpand = false;
   private screenshotInFlight = false;
   private tray: Tray | null = null;
@@ -212,7 +212,8 @@ class MainProcess {
 
     // Capture the current selection BEFORE showing our panel (focus is still on the
     // source app). On-demand only — never monitored in the background.
-    let captured = { selection: '', sourceApp: undefined as string | undefined, empty: true };
+    let captured: { selection: string; sourceApp?: string; empty: boolean; error?: string } =
+      { selection: '', sourceApp: undefined, empty: true };
     try {
       if (this.captureProvider) {
         const res = await this.captureProvider.captureSelection();
@@ -220,6 +221,7 @@ class MainProcess {
       }
     } catch (e) {
       console.warn('Selection capture failed:', e);
+      captured = { selection: '', sourceApp: undefined, empty: true, error: e instanceof Error ? e.message : 'capture failed' };
     }
 
     if (this.notchReady && !panel.isDestroyed()) {
@@ -390,7 +392,7 @@ class MainProcess {
         return { selection: r.text, sourceApp: r.sourceApp, empty: r.text.trim().length === 0 };
       } catch (e) {
         console.warn('panel:capture failed:', e);
-        return { selection: '', sourceApp: undefined, empty: true };
+        return { selection: '', sourceApp: undefined, empty: true, error: e instanceof Error ? e.message : 'capture failed' };
       }
     });
 

@@ -30,6 +30,8 @@ export interface PanelCaptured {
   sourceApp?: string;
   /** true when capture failed and the user should paste/type instead. */
   empty: boolean;
+  /** present when capture errored (e.g. missing Accessibility permission). */
+  error?: string;
 }
 
 const api = {
@@ -44,7 +46,7 @@ const api = {
   /** Open the settings window (pull models, add cloud keys). */
   openSettings: () => ipcRenderer.send('open-settings'),
   /** Capture the current selection on demand (used when the panel opens via hover). */
-  requestCapture: (): Promise<{ selection: string; sourceApp?: string; empty: boolean }> => ipcRenderer.invoke('panel:capture'),
+  requestCapture: (): Promise<{ selection: string; sourceApp?: string; empty: boolean; error?: string }> => ipcRenderer.invoke('panel:capture'),
   /** Collapse the panel back to the idle island. */
   close: () => ipcRenderer.send('panel:close'),
   /** Toggle whether the window captures mouse events (true) or is click-through (false). */

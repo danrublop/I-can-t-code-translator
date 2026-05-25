@@ -23,9 +23,18 @@ async function osascript(script: string): Promise<string> {
   return stdout.trim();
 }
 
-/** Synthesize Cmd+C in the frontmost app. */
+/** Synthesize Cmd+C in the frontmost app. Throws a clear error if not permitted. */
 async function triggerCopy(): Promise<void> {
-  await osascript('tell application "System Events" to keystroke "c" using {command down}');
+  try {
+    await osascript('tell application "System Events" to keystroke "c" using {command down}');
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error('[capture] osascript keystroke failed:', msg);
+    // 1002/-25211 = not trusted for Accessibility; -1743 = Automation not allowed.
+    throw new Error(
+      'Could not send Cmd+C. Grant Accessibility + Automation to this app in System Settings → Privacy & Security. (In dev, that\'s "Electron".) Original: ' + msg,
+    );
+  }
 }
 
 /** Name of the frontmost application, for tagging. Best-effort. */
@@ -59,7 +68,9 @@ export function createMacCaptureProvider(): CaptureProvider {
   return {
     async captureSelection(): Promise<CaptureResult> {
       cachedSourceApp = await getSourceApp();
-      return hybrid.captureSelection();
+      const res = await hybrid.captureSelection();
+      console.log(`[capture] via=${res.via} chars=${res.text.length} sourceApp=${res.sourceApp ?? '?'}`);
+      return res;
     },
   };
 }

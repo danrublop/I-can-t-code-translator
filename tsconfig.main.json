@@ -24,6 +24,7 @@
     "src/main/main.ts",
     "src/main/preload-panel.ts",
     "src/main/preload-notebook.ts",
+    "src/main/preload-settings.ts",
     "src/main/services/**/*"
   ],
   "exclude": [

@@ -41,6 +41,8 @@ const api = {
   listModels: (): Promise<string[]> => ipcRenderer.invoke('panel:models'),
   /** Open the notebook window now (watch the answer stream in). */
   openNotebook: () => ipcRenderer.send('open-notebook'),
+  /** Open the settings window (pull models, add cloud keys). */
+  openSettings: () => ipcRenderer.send('open-settings'),
   /** Capture the current selection on demand (used when the panel opens via hover). */
   requestCapture: (): Promise<{ selection: string; sourceApp?: string; empty: boolean }> => ipcRenderer.invoke('panel:capture'),
   /** Collapse the panel back to the idle island. */

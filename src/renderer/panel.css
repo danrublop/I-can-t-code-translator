@@ -107,6 +107,7 @@ body { font-family: var(--sans); color: var(--ink); -webkit-font-smoothing: anti
 }
 .ghost-btn:hover:not(:disabled) { background: var(--surface-2); }
 .ghost-btn:disabled { opacity: 0.5; cursor: default; }
+.ghost-btn.icon-only { padding: 5px 8px; }
 
 .input-row { display: flex; align-items: center; gap: 8px; }
 .ask-input {

@@ -24,6 +24,30 @@ export class OllamaLlmClient implements LlmClient {
     }
   }
 
+  /** Pull a model via /api/pull, streaming progress. Resolves when complete. */
+  async pullModel(name: string, onProgress?: (status: string, percent: number) => void): Promise<void> {
+    const res = await axios.post(`${BASE_URL}/api/pull`, { name, stream: true }, { responseType: 'stream', timeout: 0 });
+    return await new Promise<void>((resolve, reject) => {
+      let buffer = '';
+      res.data.on('data', (chunk: Buffer) => {
+        buffer += chunk.toString();
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const d = JSON.parse(line);
+            const pct = d.total ? Math.round((d.completed ?? 0) / d.total * 100) : 0;
+            onProgress?.(String(d.status ?? ''), pct);
+            if (d.error) reject(new Error(d.error));
+          } catch { /* skip */ }
+        }
+      });
+      res.data.on('end', () => resolve());
+      res.data.on('error', (e: Error) => reject(new Error(`Ollama pull error: ${e.message}`)));
+    });
+  }
+
   async generate(opts: {
     model: string;
     prompt: string;

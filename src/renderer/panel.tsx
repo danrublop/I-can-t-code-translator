@@ -19,6 +19,7 @@ interface LlamasAPI {
   captureScreenshot: () => Promise<string | null>;
   listModels: () => Promise<string[]>;
   openNotebook: () => void;
+  openSettings: () => void;
   requestCapture: () => Promise<{ selection: string; sourceApp?: string; empty: boolean }>;
   close: () => void;
   setInteractive: (on: boolean) => void;
@@ -198,6 +199,7 @@ function Panel() {
             </span>
             <span className="spacer" />
             <button className="ghost-btn" onClick={() => window.llamasAPI.openNotebook()} title="Open notebook">▤ Notebook</button>
+            <button className="ghost-btn icon-only" onClick={() => window.llamasAPI.openSettings()} title="Settings">⚙</button>
           </div>
 
           <div className="input-row">

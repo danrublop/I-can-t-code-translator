@@ -9,6 +9,10 @@ import type { CaptureProvider } from './services/capture/capture';
 import { captureRegion } from './services/vision/screenshot';
 import { NotchController } from './services/notch/notch-controller';
 import { OllamaLlmClient } from './services/llm/ollama-llm-client';
+import { OpenAiLlmClient } from './services/llm/openai-llm-client';
+import { AnthropicLlmClient } from './services/llm/anthropic-llm-client';
+import { MultiLlmClient, CLOUD_MODELS } from './services/llm/multi-llm-client';
+import { SettingsService, settingsPath } from './services/settings/settings-service';
 import { MarkdownStore } from './services/notebook/markdown-store';
 import { NotebookStore } from './services/notebook/notebook-store';
 import { MemoryNotebookIndex } from './services/notebook/memory-index';
@@ -40,7 +44,9 @@ class MainProcess {
   private captureProvider: CaptureProvider | null = null;
   private notebookStore: NotebookStore | null = null;
   private llmClient: OllamaLlmClient | null = null;
+  private settingsService: SettingsService | null = null;
   private notebookWindow: BrowserWindow | null = null;
+  private settingsWindow: BrowserWindow | null = null;
 
   async initialize(): Promise<void> {
     await app.whenReady();
@@ -92,8 +98,14 @@ class MainProcess {
 
       this.captureProvider = createMacCaptureProvider();
       this.llmClient = new OllamaLlmClient();
+      this.settingsService = new SettingsService(settingsPath(userData));
+      const llm = new MultiLlmClient({
+        ollama: this.llmClient,
+        openai: new OpenAiLlmClient(() => this.settingsService?.get().openaiKey),
+        anthropic: new AnthropicLlmClient(() => this.settingsService?.get().anthropicKey),
+      });
       this.notchController = new NotchController({
-        llm: this.llmClient,
+        llm,
         notebook: this.notebookStore,
         routerConfig: { defaultTextModel: DEFAULT_TEXT_MODEL, visionModel: VISION_MODEL },
         presets: BUILT_IN_PRESETS,
@@ -242,6 +254,8 @@ class MainProcess {
       this.tray.setToolTip('Llamas Remote');
       const menu = Menu.buildFromTemplate([
         { label: 'Ask  (⌘⇧Space)', click: () => this.handleNotchHotkey() },
+        { label: 'Notebook', click: () => this.showNotebook() },
+        { label: 'Settings…', click: () => this.showSettings() },
         { type: 'separator' },
         { label: 'Quit Llamas Remote', click: () => app.quit() },
       ]);
@@ -289,6 +303,30 @@ class MainProcess {
     if (this.notebookWindow && !this.notebookWindow.isDestroyed()) {
       this.notebookWindow.webContents.send(channel, payload);
     }
+  }
+
+  private showSettings(): void {
+    if (this.settingsWindow && !this.settingsWindow.isDestroyed()) {
+      this.settingsWindow.show();
+      this.settingsWindow.focus();
+      return;
+    }
+    this.settingsWindow = new BrowserWindow({
+      width: 520,
+      height: 600,
+      show: false,
+      title: 'Llamas Remote — Settings',
+      titleBarStyle: 'hiddenInset',
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        preload: join(__dirname, 'preload-settings.js'),
+      },
+    });
+    this.settingsWindow.loadFile(join(__dirname, '..', 'settings.html')).catch((e) => console.error('Failed to load settings:', e));
+    this.settingsWindow.on('closed', () => { this.settingsWindow = null; });
+    if (process.platform === 'darwin') app.dock?.show();
+    this.settingsWindow.once('ready-to-show', () => { this.settingsWindow?.show(); this.settingsWindow?.focus(); });
   }
 
   private setupNotchIpc(): void {
@@ -359,10 +397,33 @@ class MainProcess {
     // Open the notebook window immediately (the panel's Open button) to watch streaming.
     ipcMain.on('open-notebook', () => this.showNotebook());
 
-    // List installed Ollama models for the panel's model picker.
+    // Model picker = local Ollama models + cloud models for providers whose key is set.
     ipcMain.handle('panel:models', async () => {
-      if (!this.llmClient) return [];
-      return this.llmClient.listModels();
+      const local = this.llmClient ? await this.llmClient.listModels() : [];
+      const s = this.settingsService?.get() ?? {};
+      const cloud = [
+        ...(s.openaiKey ? CLOUD_MODELS.openai : []),
+        ...(s.anthropicKey ? CLOUD_MODELS.anthropic : []),
+      ];
+      return [...local, ...cloud];
+    });
+
+    // Settings window + operations.
+    ipcMain.on('open-settings', () => this.showSettings());
+    ipcMain.handle('settings:get', () => this.settingsService?.getRedacted() ?? { openaiKeySet: false, anthropicKeySet: false });
+    ipcMain.handle('settings:set-key', (_e, provider: 'openai' | 'anthropic', key: string) => {
+      this.settingsService?.setKey(provider, key);
+    });
+    ipcMain.handle('ollama:pull', async (event, name: string) => {
+      if (!this.llmClient || !name.trim()) return { ok: false, error: 'No model name' };
+      try {
+        await this.llmClient.pullModel(name.trim(), (status, percent) => {
+          if (!event.sender.isDestroyed()) event.sender.send('settings:pull-progress', { name, status, percent });
+        });
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : 'Pull failed' };
+      }
     });
 
     // Notebook (notes app) operations.

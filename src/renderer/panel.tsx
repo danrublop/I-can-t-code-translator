@@ -1,6 +1,15 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrandIcon } from './model-icon';
+// Deep per-icon imports (the lucide-react barrel pulls in all ~1000 icons / ~700KB).
+import ChevronDown from 'lucide-react/dist/esm/icons/chevron-down';
+import NotebookText from 'lucide-react/dist/esm/icons/notebook-text';
+import Camera from 'lucide-react/dist/esm/icons/camera';
+import Sparkles from 'lucide-react/dist/esm/icons/sparkles';
+import Bug from 'lucide-react/dist/esm/icons/bug';
+import Languages from 'lucide-react/dist/esm/icons/languages';
+import PenLine from 'lucide-react/dist/esm/icons/pen-line';
+import AlignLeft from 'lucide-react/dist/esm/icons/align-left';
 import './panel.css';
 
 interface PanelQueryRequest {
@@ -29,12 +38,12 @@ interface LlamasAPI {
 }
 declare global { interface Window { llamasAPI: LlamasAPI } }
 
-// Preset action shortcuts (preset id -> label). "Ask" (free-form) is rendered separately.
+// Preset action shortcuts (preset id -> label + Lucide icon). "Ask" is separate.
 const ACTIONS = [
-  { id: 'find-bugs', name: 'Debug' },
-  { id: 'translate', name: 'Translate' },
-  { id: 'rewrite', name: 'Rephrase' },
-  { id: 'summarize', name: 'Summarize' },
+  { id: 'find-bugs', name: 'Debug', Icon: Bug },
+  { id: 'translate', name: 'Translate', Icon: Languages },
+  { id: 'rewrite', name: 'Rephrase', Icon: PenLine },
+  { id: 'summarize', name: 'Summarize', Icon: AlignLeft },
 ];
 
 type Status = 'idle' | 'running' | 'done' | 'error';
@@ -222,7 +231,7 @@ function Panel() {
               <button className="model-btn" onClick={() => setModelOpen((v) => !v)} title="Model">
                 {model && <BrandIcon model={model} size={15} />}
                 <span className="model-name">{model || 'default model'}</span>
-                <span className="chev">▾</span>
+                <ChevronDown size={13} className="chev" />
               </button>
               {modelOpen && (
                 <div className="model-menu">
@@ -241,7 +250,7 @@ function Panel() {
               )}
             </div>
             <span className="spacer" />
-            <button className="ghost-btn icon-only" onClick={() => window.llamasAPI.openNotebook()} title="Open notebook">▤</button>
+            <button className="ghost-btn icon-only" onClick={() => window.llamasAPI.openNotebook()} title="Open notebook"><NotebookText size={16} /></button>
             <CircleMeter pct={ctxPct} />
           </div>
 
@@ -253,10 +262,12 @@ function Panel() {
                   disabled={busy}
                   onClick={() => { setTyping(true); pinnedRef.current = true; setTimeout(() => typeInputRef.current?.focus(), 60); }}
                 >
-                  Ask
+                  <Sparkles size={14} /> Ask
                 </button>
                 {ACTIONS.map((a) => (
-                  <button key={a.id} className="action" disabled={busy} onClick={() => runAction(a.id)}>{a.name}</button>
+                  <button key={a.id} className="action" disabled={busy} onClick={() => runAction(a.id)}>
+                    <a.Icon size={14} /> <span className="action-label">{a.name}</span>
+                  </button>
                 ))}
               </div>
               {/* Slides open over the buttons when "Type a question" is clicked. */}
@@ -275,7 +286,7 @@ function Panel() {
                 <button className="type-close" onClick={() => setTyping(false)} title="Close">✕</button>
               </div>
             </div>
-            <button className="icon-btn" onClick={screenshot} disabled={busy} title="Screenshot a region">⌖</button>
+            <button className="icon-btn" onClick={screenshot} disabled={busy} title="Capture a screenshot"><Camera size={17} /></button>
           </div>
 
           <div className="statusbar">

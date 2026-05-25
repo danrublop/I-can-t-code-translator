@@ -149,7 +149,13 @@ class MainProcess {
       if (this.notchPanel && !this.notchPanel.isDestroyed()) {
         const d = require('electron').screen.getPrimaryDisplay();
         const w = Math.min(820, d.bounds.width);
-        this.notchPanel.setBounds({ x: Math.round((d.bounds.width - w) / 2), y: d.bounds.y, width: w, height: 540 });
+        const target = { x: Math.round((d.bounds.width - w) / 2), y: d.bounds.y, width: w, height: 540 };
+        this.notchPanel.setAlwaysOnTop(true, 'screen-saver');
+        this.notchPanel.setBounds(target);
+        // Diagnostic: did macOS honor y=0 or clamp the window below the menu bar?
+        const actual = this.notchPanel.getBounds();
+        console.log('[notch] requested', JSON.stringify(target), '| actual', JSON.stringify(actual),
+          '| display.bounds', JSON.stringify(d.bounds), '| workArea', JSON.stringify(d.workArea));
       }
       // Idle: click-through, but forward move events so the renderer can detect hover.
       this.notchPanel?.setIgnoreMouseEvents(true, { forward: true });

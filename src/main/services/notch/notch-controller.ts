@@ -98,6 +98,7 @@ export class NotchController {
 
     const entry = makeEntry({
       id: this.deps.newId(),
+      title: this.buildTitle(req, preset, selection),
       body: answer,
       tags: this.buildTags(req),
       model,
@@ -121,6 +122,13 @@ export class NotchController {
       return `${req.freeText.trim()}\n\n${selection}`;
     }
     return (req.freeText ?? selection).trim();
+  }
+
+  private buildTitle(req: QueryRequest, preset: Preset | undefined, selection: string): string {
+    const base = preset?.name ?? (req.freeText?.trim() || (req.kind === 'image' ? 'Screenshot' : 'Note'));
+    const context = (selection || req.freeText || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+    const title = context ? `${base} — ${context}` : base;
+    return title.slice(0, 70);
   }
 
   private buildTags(req: QueryRequest): string[] {

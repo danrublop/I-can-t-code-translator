@@ -312,6 +312,7 @@ class MainProcess {
           onToken: (partial) => this.sendNotebook('notebook:token', partial),
         });
         this.sendNotebook('notebook:done', result.answer);
+        this.sendNotebook('notebook:saved', result.entry.id);
         if (req.autoOpen !== false) this.showNotebook(); // auto-open when done
         return { ok: true, answer: result.answer, model: result.model, entryId: result.entry.id };
       } catch (err) {
@@ -344,6 +345,13 @@ class MainProcess {
       if (!this.llmClient) return [];
       return this.llmClient.listModels();
     });
+
+    // Notebook (notes app) operations.
+    ipcMain.handle('notebook:list', () => this.notebookStore?.list() ?? []);
+    ipcMain.handle('notebook:get', (_e, id: string) => this.notebookStore?.getBody(id) ?? null);
+    ipcMain.handle('notebook:rename', (_e, id: string, title: string) => { this.notebookStore?.rename(id, title); });
+    ipcMain.handle('notebook:pin', (_e, id: string, pinned: boolean) => { this.notebookStore?.setPinned(id, pinned); });
+    ipcMain.handle('notebook:update-body', (_e, id: string, body: string) => { this.notebookStore?.updateBody(id, body); });
 
     ipcMain.handle('panel:screenshot', async () => {
       this.screenshotInFlight = true;

@@ -42,10 +42,12 @@ export function serializeEntry(entry: NotebookEntry): string {
   const fm = [
     '---',
     `id: ${esc(entry.id)}`,
+    `title: ${esc(entry.title)}`,
     `created_at: ${esc(entry.createdAt)}`,
     `model: ${esc(entry.model)}`,
     `source_app: ${esc(entry.sourceApp)}`,
     `source_kind: ${entry.sourceKind}`,
+    `pinned: ${entry.pinned ? 'true' : 'false'}`,
     `tags: [${tags}]`,
     '---',
     '',
@@ -55,7 +57,9 @@ export function serializeEntry(entry: NotebookEntry): string {
 
 interface ParsedFile {
   id: string;
+  title: string;
   tags: string[];
+  pinned: boolean;
   body: string;
 }
 
@@ -69,6 +73,8 @@ export function parseEntry(text: string): ParsedFile | null {
   const body = text.slice(end + 4).replace(/^\n/, '');
 
   let id = '';
+  let title = '';
+  let pinned = false;
   let tags: string[] = [];
   for (const line of header.split('\n')) {
     const idx = line.indexOf(':');
@@ -76,13 +82,15 @@ export function parseEntry(text: string): ParsedFile | null {
     const key = line.slice(0, idx).trim();
     const val = line.slice(idx + 1).trim();
     if (key === 'id') id = unesc(val);
+    else if (key === 'title') title = unesc(val);
+    else if (key === 'pinned') pinned = val === 'true';
     else if (key === 'tags') {
       const inner = val.replace(/^\[/, '').replace(/\]$/, '').trim();
       tags = inner.length ? inner.split(',').map((t) => unesc(t)).filter(Boolean) : [];
     }
   }
   if (!id) return null;
-  return { id, tags, body: body.replace(/\n$/, '') };
+  return { id, title, pinned, tags, body: body.replace(/\n$/, '') };
 }
 
 export class MarkdownStore {
@@ -136,13 +144,17 @@ export class MarkdownStore {
 
 /** Tiny helper so callers don't repeat the SourceKind union literal. */
 export function makeEntry(
-  fields: Omit<NotebookEntry, 'createdAt' | 'sourceKind'> & {
+  fields: Omit<NotebookEntry, 'createdAt' | 'sourceKind' | 'title' | 'pinned'> & {
     createdAt?: string;
     sourceKind?: SourceKind;
+    title?: string;
+    pinned?: boolean;
   },
 ): NotebookEntry {
   return {
     ...fields,
+    title: fields.title ?? '',
+    pinned: fields.pinned ?? false,
     sourceKind: fields.sourceKind ?? 'text',
     createdAt: fields.createdAt ?? new Date().toISOString(),
   };

@@ -12,11 +12,13 @@ export type SourceKind = 'text' | 'image';
 /** One saved answer. The markdown FILE is the source of truth for `body`. */
 export interface NotebookEntry {
   id: string;
+  title: string;
   body: string;
   tags: string[];
   model: string;
   sourceApp: string;
   sourceKind: SourceKind;
+  pinned: boolean;
   createdAt: string; // ISO 8601
 }
 
@@ -27,14 +29,26 @@ export interface SearchHit {
   tags: string[];
 }
 
+/** Sidebar row for the notes list. */
+export interface NoteSummary {
+  id: string;
+  title: string;
+  snippet: string;
+  sourceApp?: string;
+  pinned: boolean;
+  createdAt: string;
+}
+
 /** Row written to the index. Mirrors NotebookEntry minus the body-of-truth nuance. */
 export interface IndexUpsert {
   id: string;
   body: string;
   tags: string[];
+  title?: string;
   model?: string;
   sourceApp?: string;
   sourceKind?: SourceKind;
+  pinned?: boolean;
   createdAt?: string;
   /** File mtime (ms) recorded so future reconciles can detect on-disk edits. */
   indexedMtimeMs: number;
@@ -53,6 +67,16 @@ export interface NotebookIndex {
   tombstone(id: string): void;
   /** Full-text search over live (non-tombstoned) rows. */
   search(query: string): SearchHit[];
+  /** All live notes for the sidebar (pinned first, then newest). */
+  list(): NoteSummary[];
+  /** Full body of one note, or null. */
+  getBody(id: string): string | null;
+  /** Rename a note. */
+  setTitle(id: string, title: string): void;
+  /** Pin/unpin a note. */
+  setPinned(id: string, pinned: boolean): void;
+  /** Update a note's body (in-app edit). */
+  updateBody(id: string, body: string): void;
   /** Release resources (close the DB handle). */
   close?(): void;
 }

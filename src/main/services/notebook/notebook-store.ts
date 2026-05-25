@@ -12,7 +12,7 @@
 import { statSync } from 'fs';
 import { reconcileAll } from './reconcile';
 import type { MarkdownStore } from './markdown-store';
-import type { NotebookEntry, NotebookIndex, SearchHit } from './types';
+import type { NotebookEntry, NotebookIndex, NoteSummary, SearchHit } from './types';
 
 export interface SyncSummary {
   inserted: number;
@@ -33,14 +33,67 @@ export class NotebookStore {
     const mtimeMs = statSync(path).mtimeMs;
     this.index.upsert({
       id: entry.id,
+      title: entry.title,
       body: entry.body,
       tags: entry.tags,
       model: entry.model,
       sourceApp: entry.sourceApp,
       sourceKind: entry.sourceKind,
+      pinned: entry.pinned,
       createdAt: entry.createdAt,
       indexedMtimeMs: mtimeMs,
     });
+  }
+
+  /** Notes for the sidebar (pinned first, newest next). */
+  list(): NoteSummary[] {
+    return this.index.list();
+  }
+
+  /** Full body of a note. */
+  getBody(id: string): string | null {
+    return this.index.getBody(id);
+  }
+
+  /** Rename a note (index + mirror to the markdown file's frontmatter). */
+  rename(id: string, title: string): void {
+    this.index.setTitle(id, title);
+    this.rewriteFile(id);
+  }
+
+  /** Pin/unpin a note. */
+  setPinned(id: string, pinned: boolean): void {
+    this.index.setPinned(id, pinned);
+    this.rewriteFile(id);
+  }
+
+  /** Update a note body from an in-app edit (index + markdown file). */
+  updateBody(id: string, body: string): void {
+    this.index.updateBody(id, body);
+    this.rewriteFile(id, body);
+  }
+
+  // Re-mirror the index row back to its markdown file so on-disk frontmatter/body stay
+  // in sync with in-app edits. Best-effort.
+  private rewriteFile(id: string, bodyOverride?: string): void {
+    const existing = this.files.read(id);
+    const body = bodyOverride ?? this.index.getBody(id) ?? existing?.body ?? '';
+    const summary = this.index.list().find((n) => n.id === id);
+    try {
+      this.files.write({
+        id,
+        title: summary?.title ?? existing?.title ?? '',
+        body,
+        tags: existing?.tags ?? [],
+        model: '',
+        sourceApp: summary?.sourceApp ?? '',
+        sourceKind: 'text',
+        pinned: summary?.pinned ?? existing?.pinned ?? false,
+        createdAt: summary?.createdAt || new Date().toISOString(),
+      });
+    } catch {
+      // ignore mirror failures
+    }
   }
 
   /** Delete an entry from disk; the next syncFromDisk will tombstone the index row. */

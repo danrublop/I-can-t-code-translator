@@ -5,12 +5,12 @@ import { join } from 'path';
 import { MarkdownStore, makeEntry, serializeEntry } from './markdown-store';
 import { NotebookStore } from './notebook-store';
 import type { IndexRow } from './reconcile';
-import type { IndexUpsert, NotebookIndex, SearchHit } from './types';
+import type { IndexUpsert, NotebookIndex, NoteSummary, SearchHit } from './types';
 
 // In-memory NotebookIndex fake — stands in for the SQLite FTS5 index so the store logic
 // is tested headless (no native module). Search is a naive case-insensitive substring.
 class FakeIndex implements NotebookIndex {
-  rows = new Map<string, { body: string; tags: string[]; mtime: number; tombstoned: boolean }>();
+  rows = new Map<string, { title?: string; body: string; tags: string[]; pinned: boolean; mtime: number; tombstoned: boolean }>();
 
   allRows(): IndexRow[] {
     return [...this.rows.entries()].map(([id, r]) => ({
@@ -21,7 +21,8 @@ class FakeIndex implements NotebookIndex {
     }));
   }
   upsert(row: IndexUpsert): void {
-    this.rows.set(row.id, { body: row.body, tags: row.tags, mtime: row.indexedMtimeMs, tombstoned: false });
+    const prev = this.rows.get(row.id);
+    this.rows.set(row.id, { title: row.title ?? prev?.title, body: row.body, tags: row.tags, pinned: row.pinned ?? prev?.pinned ?? false, mtime: row.indexedMtimeMs, tombstoned: false });
   }
   tombstone(id: string): void {
     const r = this.rows.get(id);
@@ -33,6 +34,13 @@ class FakeIndex implements NotebookIndex {
       .filter(([, r]) => !r.tombstoned && r.body.toLowerCase().includes(q))
       .map(([id, r]) => ({ id, snippet: r.body.slice(0, 40), tags: r.tags }));
   }
+  list(): NoteSummary[] {
+    return [...this.rows.entries()].filter(([, r]) => !r.tombstoned).map(([id, r]) => ({ id, title: r.title ?? r.body.slice(0, 40), snippet: r.body.slice(0, 80), pinned: r.pinned, createdAt: '' }));
+  }
+  getBody(id: string): string | null { const r = this.rows.get(id); return r && !r.tombstoned ? r.body : null; }
+  setTitle(id: string, title: string): void { const r = this.rows.get(id); if (r) r.title = title; }
+  setPinned(id: string, pinned: boolean): void { const r = this.rows.get(id); if (r) r.pinned = pinned; }
+  updateBody(id: string, body: string): void { const r = this.rows.get(id); if (r) r.body = body; }
 }
 
 let dir: string;

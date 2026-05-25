@@ -9,7 +9,29 @@ export interface NotebookMeta {
   model: string;
 }
 
+export interface NoteSummary {
+  id: string;
+  title: string;
+  snippet: string;
+  sourceApp?: string;
+  pinned: boolean;
+  createdAt: string;
+}
+
 const api = {
+  // Notes-app operations
+  list: (): Promise<NoteSummary[]> => ipcRenderer.invoke('notebook:list'),
+  getBody: (id: string): Promise<string | null> => ipcRenderer.invoke('notebook:get', id),
+  rename: (id: string, title: string): Promise<void> => ipcRenderer.invoke('notebook:rename', id, title),
+  setPinned: (id: string, pinned: boolean): Promise<void> => ipcRenderer.invoke('notebook:pin', id, pinned),
+  updateBody: (id: string, body: string): Promise<void> => ipcRenderer.invoke('notebook:update-body', id, body),
+  /** Fired after a streamed answer is saved (id of the new note). */
+  onSaved: (cb: (id: string) => void) => {
+    const h = (_e: unknown, id: string) => cb(id);
+    ipcRenderer.on('notebook:saved', h);
+    return () => ipcRenderer.removeListener('notebook:saved', h);
+  },
+
   /** A new query started — reset the view with its metadata. */
   onStart: (cb: (meta: NotebookMeta) => void) => {
     const h = (_e: unknown, meta: NotebookMeta) => cb(meta);

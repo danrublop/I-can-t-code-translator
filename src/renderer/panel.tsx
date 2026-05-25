@@ -44,7 +44,7 @@ function Panel() {
   const [sourceApp, setSourceApp] = useState<string | undefined>();
   const [freeText, setFreeText] = useState('');
   const [models, setModels] = useState<string[]>([]);
-  const [model, setModel] = useState('');
+  const [model, setModel] = useState(localStorage.getItem('lr-model') || '');
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState('');
   const islandRef = useRef<HTMLDivElement>(null);
@@ -103,7 +103,11 @@ function Panel() {
   }, [open]);
 
   useEffect(() => {
-    window.llamasAPI.listModels().then((m) => { setModels(m); if (m.length && !model) setModel(m[0]); }).catch(() => {});
+    window.llamasAPI.listModels().then((m) => {
+      setModels(m);
+      // Keep the persisted choice if it's still installed; otherwise fall back to the first.
+      setModel((cur) => (cur && m.includes(cur)) ? cur : (m[0] ?? cur));
+    }).catch(() => {});
     const offCap = window.llamasAPI.onCaptured((data) => {
       setSelection(data.selection);
       setSourceApp(data.sourceApp);
@@ -162,7 +166,7 @@ function Panel() {
         {/* Expanded: compact launcher */}
         <div className="panel">
           <div className="hdr">
-            <select className="model-select" value={model} onChange={(e) => setModel(e.target.value)} title="Model">
+            <select className="model-select" value={model} onChange={(e) => { setModel(e.target.value); localStorage.setItem('lr-model', e.target.value); }} title="Model">
               {models.length === 0 && <option value="">default model</option>}
               {models.map((m) => <option key={m} value={m}>{m}</option>)}
             </select>

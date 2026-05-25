@@ -87,6 +87,13 @@
       "!**/*.ts",
       "!src/**/*"
     ],
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**"
+    ],
+    "extraResources": [
+      { "from": "build-resources/trayTemplate.png", "to": "trayTemplate.png" },
+      { "from": "build-resources/trayTemplate@2x.png", "to": "trayTemplate@2x.png" }
+    ],
     "mac": {
       "category": "public.app-category.developer-tools",
       "target": [

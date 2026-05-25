@@ -224,12 +224,18 @@ class MainProcess {
     panel.focus();
   }
 
+  // Resolve a bundled asset both in dev (build-resources/) and packaged (extraResources
+  // copies it to Contents/Resources/).
+  private assetPath(name: string): string {
+    return app.isPackaged ? join(process.resourcesPath, name) : join(app.getAppPath(), 'build-resources', name);
+  }
+
   private createTray(): void {
     try {
       // Menu-bar template image (the gamepad-directional symbol). Template = monochrome
       // black+alpha; macOS recolors it for the light/dark menu bar. The @2x sibling is
       // auto-loaded for Retina.
-      const iconPath = join(app.getAppPath(), 'build-resources', 'trayTemplate.png');
+      const iconPath = this.assetPath('trayTemplate.png');
       const image = nativeImage.createFromPath(iconPath);
       if (!image.isEmpty()) image.setTemplateImage(true);
       this.tray = new Tray(image.isEmpty() ? nativeImage.createEmpty() : image);

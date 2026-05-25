@@ -36,10 +36,6 @@ const PRESETS = [
 
 type Status = 'idle' | 'loading' | 'done' | 'error' | 'empty';
 
-// Half-width of the top hover zone (covers both nubs + the notch gap between them).
-const HOVER_HALF_WIDTH = 200;
-const HOVER_TOP = 46;
-
 function Panel() {
   const [expanded, setExpanded] = useState(false);
   const [selection, setSelection] = useState('');
@@ -51,6 +47,7 @@ function Panel() {
   const [error, setError] = useState('');
   const [activePreset, setActivePreset] = useState<string | undefined>();
   const inputRef = useRef<HTMLInputElement>(null);
+  const islandRef = useRef<HTMLDivElement>(null);
 
   const expandedRef = useRef(false);
   const pinnedRef = useRef(false);
@@ -83,12 +80,14 @@ function Panel() {
   }, [collapseNow]);
 
   // Collapsed + click-through: main forwards move events so we can detect a hover over the
-  // top-center (the nubs + notch gap) and drop the panel down.
+  // island bar (which spans the notch) and drop the panel down.
   useEffect(() => {
     function onMove(e: MouseEvent) {
       if (expandedRef.current) return;
-      const overTop = e.clientY <= HOVER_TOP && Math.abs(e.clientX - window.innerWidth / 2) <= HOVER_HALF_WIDTH;
-      if (overTop) open();
+      const r = islandRef.current?.getBoundingClientRect();
+      const pad = 4;
+      const over = !!r && e.clientX >= r.left - pad && e.clientX <= r.right + pad && e.clientY <= r.bottom + pad;
+      if (over) open();
     }
     document.addEventListener('mousemove', onMove);
     return () => document.removeEventListener('mousemove', onMove);
@@ -136,17 +135,21 @@ function Panel() {
   }
 
   return (
-    <div className={`stage${expanded ? ' expanded' : ''}`}>
-      {/* Always-visible widgets flanking the notch */}
-      <div className="nub left" onMouseEnter={() => { cancelCollapse(); open(); }}>
-        <span className="dot" />
-      </div>
-      <div className="nub right" onMouseEnter={() => { cancelCollapse(); open(); }}>
-        <span className="bars"><i /><i /><i /><i /></span>
-      </div>
+    <div className="stage">
+      <div
+        ref={islandRef}
+        className={`island${expanded ? ' expanded' : ''}`}
+        onMouseEnter={() => { cancelCollapse(); if (!expandedRef.current) open(); }}
+        onMouseLeave={scheduleCollapse}
+      >
+        {/* Collapsed: dot at the left end, waveform at the right end (notch sits between) */}
+        <div className="collapsed">
+          <span className="dot" />
+          <span className="bars"><i /><i /><i /><i /></span>
+        </div>
 
-      {/* Expanded panel drops down under the notch */}
-      <div className="panel" onMouseEnter={cancelCollapse} onMouseLeave={scheduleCollapse}>
+        {/* Expanded panel */}
+        <div className="panel">
         <div className="ask-row">
           <span className="model-chip">{model}</span>
           <input
@@ -189,6 +192,7 @@ function Panel() {
           {status === 'done' && <span className="saved">✓ saved to notebook</span>}
           <span className="spacer" />
           <button onClick={() => { collapseNow(); window.llamasAPI.close(); }}>esc close</button>
+        </div>
         </div>
       </div>
     </div>

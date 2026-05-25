@@ -26,24 +26,34 @@ body { font-family: var(--sans); color: var(--ink); -webkit-font-smoothing: anti
 
 .stage { position: relative; width: 100%; height: 100%; }
 
-/* ── Collapsed widgets flanking the notch (always visible) ── */
-.nub {
+/* One continuous black island fused to the very top. Collapsed it spans the notch (dot
+   on the left end, waveform on the right end) so it reads as connected to the notch;
+   expanded it grows down into the full panel. Square top (merges with the screen edge /
+   notch), rounded bottom. */
+.island {
   position: absolute;
   top: 0;
-  height: var(--nub-h);
+  left: 50%;
+  transform: translateX(-50%);
   background: var(--island-bg);
-  display: flex;
-  align-items: center;
-  /* square top (fused to screen edge), rounded bottom */
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
   border-bottom-left-radius: var(--radius);
   border-bottom-right-radius: var(--radius);
-  transition: opacity 0.18s ease;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  /* collapsed: a bar wide enough to span the notch with content at each end */
+  width: calc(var(--notch-w) + 160px);
+  height: var(--nub-h);
+  transition: width 0.28s var(--ease), height 0.28s var(--ease);
   cursor: pointer;
 }
-.nub.left  { right: calc(50% + var(--notch-w) / 2); padding: 0 12px 0 16px; }
-.nub.right { left:  calc(50% + var(--notch-w) / 2); padding: 0 16px 0 12px; }
-.stage.expanded .nub { opacity: 0; pointer-events: none; }
+.island.expanded { width: 660px; height: 500px; cursor: default; }
 
+/* Collapsed content: dot at the left end, waveform at the right end (notch sits between). */
+.collapsed { display: flex; align-items: center; justify-content: space-between; height: 100%; padding: 0 18px; }
+.island.expanded .collapsed { display: none; }
 .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--accent); }
 .bars { display: flex; gap: 2px; align-items: flex-end; height: 12px; }
 .bars i { width: 2px; background: var(--muted); border-radius: 1px; }
@@ -52,30 +62,9 @@ body { font-family: var(--sans); color: var(--ink); -webkit-font-smoothing: anti
 .bars i:nth-child(3) { height: 7px; }
 .bars i:nth-child(4) { height: 9px; }
 
-/* ── Expanded panel: drops down from the top, centered under the notch ── */
-.panel {
-  position: absolute;
-  top: 0;
-  left: 50%;
-  width: 660px;
-  height: 500px;
-  transform: translateX(-50%) scaleY(0.6);
-  transform-origin: top center;
-  opacity: 0;
-  pointer-events: none;
-  background: var(--island-bg);
-  border-bottom-left-radius: var(--radius);
-  border-bottom-right-radius: var(--radius);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  transition: transform 0.28s var(--ease), opacity 0.2s ease;
-}
-.stage.expanded .panel {
-  transform: translateX(-50%) scaleY(1);
-  opacity: 1;
-  pointer-events: auto;
-}
+/* Expanded panel content. */
+.panel { display: none; flex-direction: column; height: 100%; }
+.island.expanded .panel { display: flex; }
 
 .ask-row { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--hairline); }
 .model-chip {

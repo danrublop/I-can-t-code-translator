@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut, ipcMain, Tray, Menu, nativeImage } from 'electron';
+import { app, BrowserWindow, globalShortcut, ipcMain, Tray, Menu, nativeImage, systemPreferences, shell } from 'electron';
 import { join } from 'path';
 import { randomUUID } from 'crypto';
 import { rmSync, existsSync } from 'fs';
@@ -36,6 +36,7 @@ class MainProcess {
   private notchReady = false;
   private pendingCaptured: { selection: string; sourceApp?: string; empty: boolean; error?: string } | null = null;
   private pendingExpand = false;
+  private accessibilityPrompted = false;
   private screenshotInFlight = false;
   private tray: Tray | null = null;
 
@@ -205,6 +206,20 @@ class MainProcess {
     });
   }
 
+  // When capture is blocked, trigger the real macOS Accessibility prompt (adds the app to
+  // the list) and open the Accessibility settings pane. Fires at most once per session.
+  private promptAccessibility(): void {
+    if (this.accessibilityPrompted || process.platform !== 'darwin') return;
+    this.accessibilityPrompted = true;
+    try {
+      // prompting=true surfaces the system "grant Accessibility" dialog for this app.
+      systemPreferences.isTrustedAccessibilityClient(true);
+      shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility');
+    } catch (e) {
+      console.warn('Failed to prompt for Accessibility:', e);
+    }
+  }
+
   private async handleNotchHotkey(): Promise<void> {
     this.createNotchPanel();
     const panel = this.notchPanel;
@@ -222,6 +237,7 @@ class MainProcess {
     } catch (e) {
       console.warn('Selection capture failed:', e);
       captured = { selection: '', sourceApp: undefined, empty: true, error: e instanceof Error ? e.message : 'capture failed' };
+      this.promptAccessibility();
     }
 
     if (this.notchReady && !panel.isDestroyed()) {
@@ -392,6 +408,7 @@ class MainProcess {
         return { selection: r.text, sourceApp: r.sourceApp, empty: r.text.trim().length === 0 };
       } catch (e) {
         console.warn('panel:capture failed:', e);
+        this.promptAccessibility();
         return { selection: '', sourceApp: undefined, empty: true, error: e instanceof Error ? e.message : 'capture failed' };
       }
     });

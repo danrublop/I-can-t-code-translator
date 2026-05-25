@@ -51,6 +51,14 @@ function Panel() {
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState('');
   const islandRef = useRef<HTMLDivElement>(null);
+  const modelPickerRef = useRef<HTMLDivElement>(null);
+
+  const refreshModels = useCallback(() => {
+    window.llamasAPI.listModels().then((m) => {
+      setModels(m);
+      setModel((cur) => (cur && m.includes(cur)) ? cur : (m[0] ?? cur));
+    }).catch(() => {});
+  }, []);
 
   const expandedRef = useRef(false);
   const pinnedRef = useRef(false);
@@ -72,13 +80,16 @@ function Panel() {
     setInteractive(true);
     // Grab the selection as we open (source app is still frontmost — the panel becomes
     // mouse-interactive without taking key focus). Skip when main already captured (hotkey).
-    if (wasCollapsed && doCapture) {
-      window.llamasAPI.requestCapture().then((r) => {
-        setSelection(r.selection);
-        setSourceApp(r.sourceApp);
-      }).catch(() => {});
+    if (wasCollapsed) {
+      refreshModels(); // pick up models pulled / keys added in Settings since last open
+      if (doCapture) {
+        window.llamasAPI.requestCapture().then((r) => {
+          setSelection(r.selection);
+          setSourceApp(r.sourceApp);
+        }).catch(() => {});
+      }
     }
-  }, [setInteractive]);
+  }, [setInteractive, refreshModels]);
 
   const collapseNow = useCallback(() => {
     setExpanded(false);
@@ -105,12 +116,18 @@ function Panel() {
     return () => document.removeEventListener('mousemove', onMove);
   }, [open]);
 
+  // Close the model dropdown on an outside click.
   useEffect(() => {
-    window.llamasAPI.listModels().then((m) => {
-      setModels(m);
-      // Keep the persisted choice if it's still installed; otherwise fall back to the first.
-      setModel((cur) => (cur && m.includes(cur)) ? cur : (m[0] ?? cur));
-    }).catch(() => {});
+    if (!modelOpen) return;
+    function onDown(e: MouseEvent) {
+      if (modelPickerRef.current && !modelPickerRef.current.contains(e.target as Node)) setModelOpen(false);
+    }
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [modelOpen]);
+
+  useEffect(() => {
+    refreshModels();
     const offCap = window.llamasAPI.onCaptured((data) => {
       setSelection(data.selection);
       setSourceApp(data.sourceApp);
@@ -156,7 +173,7 @@ function Panel() {
     <div className="stage">
       <div
         ref={islandRef}
-        className={`island${expanded ? ' expanded' : ''}`}
+        className={`island${expanded ? ' expanded' : ''}${modelOpen ? ' menu-open' : ''}`}
         onMouseEnter={() => { cancelCollapse(); if (!expandedRef.current) open(); }}
         onMouseLeave={scheduleCollapse}
       >
@@ -172,7 +189,7 @@ function Panel() {
         {/* Expanded: compact launcher */}
         <div className="panel">
           <div className="hdr">
-            <div className="model-picker">
+            <div className="model-picker" ref={modelPickerRef}>
               <button className="model-btn" onClick={() => setModelOpen((v) => !v)} title="Model">
                 {model && <BrandIcon model={model} size={15} />}
                 <span className="model-name">{model || 'default model'}</span>

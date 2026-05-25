@@ -50,6 +50,8 @@ body { font-family: var(--sans); color: var(--ink); -webkit-font-smoothing: anti
   cursor: pointer;
 }
 .island.expanded { width: 560px; height: 212px; cursor: default; }
+/* Grow so the model dropdown isn't clipped by the island's overflow:hidden. */
+.island.expanded.menu-open { height: 372px; }
 
 /* Collapsed content: dot at the left end, waveform at the right end (notch sits between). */
 .collapsed { display: flex; align-items: center; justify-content: space-between; height: 100%; padding: 0 16px; }

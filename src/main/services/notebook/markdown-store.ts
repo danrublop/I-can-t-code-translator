@@ -136,6 +136,13 @@ export class MarkdownStore {
         body: parsed.body,
         frontmatterTags: parsed.tags,
         mtimeMs: statSync(full).mtimeMs,
+        meta: {
+          title: parsed.title || undefined,
+          model: parsed.model || undefined,
+          sourceApp: parsed.sourceApp || undefined,
+          sourceKind: parsed.sourceKind,
+          createdAt: parsed.createdAt || undefined,
+        },
       });
     }
     return out;

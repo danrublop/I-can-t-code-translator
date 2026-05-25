@@ -46,6 +46,14 @@ describe('reconcileEntry', () => {
     expect(a.mtimeMs).toBe(1000);
   });
 
+  // Metadata must survive an index rebuild (e.g. fresh install) — carried from frontmatter.
+  it('carries frontmatter metadata on insert/reindex/revive', () => {
+    const meta = { title: 'My note', model: 'mistral:latest', sourceApp: 'Safari', sourceKind: 'text' as const, createdAt: '2026-05-25T00:00:00Z' };
+    expect(reconcileEntry(undefined, disk({ meta })).meta).toEqual(meta);
+    expect(reconcileEntry(row({ indexedMtimeMs: 1000 }), disk({ mtimeMs: 2000, meta })).meta).toEqual(meta); // reindex
+    expect(reconcileEntry(row({ tombstoned: true }), disk({ meta })).meta).toEqual(meta); // revive
+  });
+
   // The data-loss path the eng review flagged: when the markdown is newer, the
   // markdown BODY must win and overwrite the index — never the other way around.
   it('reindexes with markdown body winning when disk is newer', () => {

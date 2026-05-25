@@ -22,6 +22,9 @@ export class SettingsService {
       if (existsSync(file)) {
         const raw = JSON.parse(readFileSync(file, 'utf8')) as AppSettings;
         this.settings = { openaiKey: decrypt(raw.openaiKey), anthropicKey: decrypt(raw.anthropicKey) };
+        // Migrate any legacy plaintext keys to encrypted at rest, once.
+        const hasLegacyPlaintext = [raw.openaiKey, raw.anthropicKey].some((v) => v && !v.startsWith('enc:'));
+        if (hasLegacyPlaintext) this.save();
       }
     } catch {
       this.settings = {};

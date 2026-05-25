@@ -5,6 +5,8 @@ import React from 'react';
 // React. We map Ollama model names to brands ourselves; everything else falls back to the
 // Ollama mark (all models run via Ollama).
 import OllamaMono from '@lobehub/icons/es/Ollama/components/Mono';
+import OpenAIMono from '@lobehub/icons/es/OpenAI/components/Mono';
+import ClaudeColor from '@lobehub/icons/es/Claude/components/Color';
 import MistralColor from '@lobehub/icons/es/Mistral/components/Color';
 import MetaColor from '@lobehub/icons/es/Meta/components/Color';
 import QwenColor from '@lobehub/icons/es/Qwen/components/Color';
@@ -17,8 +19,11 @@ import CohereColor from '@lobehub/icons/es/Cohere/components/Color';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type IconComp = React.ComponentType<{ size?: number }>;
 
-// First matching rule wins; falls back to the Ollama mark.
+// First matching rule wins; cloud-prefixed ids (openai/…, anthropic/…) are matched first,
+// then local families, then the Ollama mark as fallback.
 const RULES: Array<[RegExp, IconComp]> = [
+  [/^openai\/|gpt|chatgpt|\bo[13]\b/i, OpenAIMono as any],
+  [/^anthropic\/|claude/i, ClaudeColor as any],
   [/mi[sx]tral|mixtral|codestral|ministral/i, MistralColor as any],
   [/qwen/i, QwenColor as any],
   [/gemma/i, GemmaColor as any],

@@ -31,6 +31,15 @@ export interface IndexRow {
   tombstoned: boolean;
 }
 
+/** Frontmatter metadata carried from disk so a rebuilt index can recover it. */
+export interface DiskMeta {
+  title?: string;
+  model?: string;
+  sourceApp?: string;
+  sourceKind?: 'text' | 'image';
+  createdAt?: string;
+}
+
 /** What the markdown file on disk currently contains. */
 export interface DiskEntry {
   id: string;
@@ -40,6 +49,8 @@ export interface DiskEntry {
   frontmatterTags: string[];
   /** File mtime in ms. */
   mtimeMs: number;
+  /** Other frontmatter (title/model/source/createdAt) so reconcile can restore it. */
+  meta?: DiskMeta;
 }
 
 export interface ReconcileAction {
@@ -51,6 +62,8 @@ export interface ReconcileAction {
   tags?: string[];
   /** File mtime to record as the new indexedMtimeMs (present for insert/reindex/revive). */
   mtimeMs?: number;
+  /** Frontmatter metadata to restore (present for insert/reindex/revive). */
+  meta?: DiskMeta;
   /** Human-readable reason, useful for logging/observability. */
   reason: string;
 }
@@ -97,6 +110,7 @@ export function reconcileEntry(
       body: disk.body,
       tags: mergeTags(disk.frontmatterTags, []),
       mtimeMs: disk.mtimeMs,
+      meta: disk.meta,
       reason: 'new markdown file with no index row',
     };
   }
@@ -109,6 +123,7 @@ export function reconcileEntry(
       body: disk.body,
       tags: mergeTags(row.tags, disk.frontmatterTags),
       mtimeMs: disk.mtimeMs,
+      meta: disk.meta,
       reason: 'file present again for a tombstoned entry',
     };
   }
@@ -121,6 +136,7 @@ export function reconcileEntry(
       body: disk.body,
       tags: mergeTags(row.tags, disk.frontmatterTags),
       mtimeMs: disk.mtimeMs,
+      meta: disk.meta,
       reason: 'markdown newer than index (body wins, tags merged)',
     };
   }

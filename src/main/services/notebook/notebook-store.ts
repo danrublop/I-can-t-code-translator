@@ -109,6 +109,12 @@ export class NotebookStore {
             body: action.body ?? '',
             tags: action.tags ?? [],
             indexedMtimeMs: action.mtimeMs ?? 0,
+            // Restore frontmatter metadata so a rebuilt index keeps titles/models/etc.
+            title: action.meta?.title,
+            model: action.meta?.model,
+            sourceApp: action.meta?.sourceApp,
+            sourceKind: action.meta?.sourceKind,
+            createdAt: action.meta?.createdAt,
           });
           if (action.kind === 'insert') summary.inserted++;
           else if (action.kind === 'reindex') summary.reindexed++;

@@ -90,7 +90,7 @@ function Settings() {
         <span className="hint">Adds Claude Sonnet / Haiku to the model picker.</span>
       </div>
 
-      <span className="hint">Keys are stored locally on this machine in plaintext (single-user app). Cloud models are text-only.</span>
+      <span className="hint">Keys are encrypted on this machine via your OS keychain (Electron safeStorage) and never leave it except to call the provider you choose. Cloud models are text-only.</span>
     </div>
   );
 }

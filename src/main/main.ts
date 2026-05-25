@@ -144,6 +144,13 @@ class MainProcess {
 
     this.notchPanel.webContents.on('did-finish-load', () => {
       this.notchReady = true;
+      // Force the window to the ABSOLUTE display top (over the menu-bar level), not the
+      // work-area top — otherwise macOS parks it below the menu bar and the island floats.
+      if (this.notchPanel && !this.notchPanel.isDestroyed()) {
+        const d = require('electron').screen.getPrimaryDisplay();
+        const w = Math.min(820, d.bounds.width);
+        this.notchPanel.setBounds({ x: Math.round((d.bounds.width - w) / 2), y: d.bounds.y, width: w, height: 540 });
+      }
       // Idle: click-through, but forward move events so the renderer can detect hover.
       this.notchPanel?.setIgnoreMouseEvents(true, { forward: true });
       if (this.pendingCaptured && this.notchPanel && !this.notchPanel.isDestroyed()) {

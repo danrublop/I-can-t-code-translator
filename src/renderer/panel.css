@@ -27,26 +27,28 @@ body { font-family: var(--sans); color: var(--ink); -webkit-font-smoothing: anti
 
 .island {
   position: absolute;
-  top: 0;
+  top: 0;                       /* flush with the very top of the screen */
   left: 50%;
   transform: translateX(-50%);
   background: var(--island-bg);
+  /* square top so it tucks against the screen edge / notch; only the bottom is rounded */
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
   border-bottom-left-radius: var(--radius-bottom);
   border-bottom-right-radius: var(--radius-bottom);
   overflow: hidden;
-  /* notch-sized collapsed pill */
-  width: 200px;
-  height: 32px;
-  transition: width 0.3s var(--ease), height 0.3s var(--ease), box-shadow 0.3s var(--ease);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  /* notch-sized collapsed pill (no shadow — it should read as fused, not floating) */
+  width: 192px;
+  height: 30px;
+  transition: width 0.3s var(--ease), height 0.3s var(--ease);
   display: flex;
   flex-direction: column;
 }
 
 /* Mild pop on hover while collapsed. */
 .island:not(.expanded):hover {
-  width: 260px;
-  height: 40px;
+  width: 250px;
+  height: 38px;
   cursor: pointer;
 }
 

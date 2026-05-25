@@ -127,6 +127,10 @@ class MainProcess {
       alwaysOnTop: true,
       show: false,
       skipTaskbar: true,
+      fullscreenable: false,
+      // Defeats AppKit's "constrain frame to visible screen" clamp, so a y:0 window can
+      // sit OVER the menu bar (otherwise it's parked at the work-area top, below the bar).
+      enableLargerThanScreen: true,
       // Float above full-screen apps and the menu bar.
       type: process.platform === 'darwin' ? 'panel' : undefined,
       webPreferences: {

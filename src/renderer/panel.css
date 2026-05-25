@@ -45,12 +45,7 @@ body { font-family: var(--sans); color: var(--ink); -webkit-font-smoothing: anti
   flex-direction: column;
 }
 
-/* Mild pop on hover while collapsed. */
-.island:not(.expanded):hover {
-  width: 250px;
-  height: 38px;
-  cursor: pointer;
-}
+.island:not(.expanded) { cursor: pointer; }
 
 .island.expanded {
   width: 660px;

@@ -85,4 +85,45 @@ describe('SettingsService', () => {
     const s = new SettingsService(file);
     expect(s.get().openaiKey).toBeUndefined();
   });
+
+  describe('custom slash commands', () => {
+    it('adds, persists, and reloads a valid custom preset', () => {
+      const s = new SettingsService(file);
+      expect(s.addCustomPreset({ id: 'flashcards', name: 'Flashcards', promptTemplate: 'Cards from:\n{selection}' })).toEqual({ ok: true });
+      expect(s.getCustomPresets().map((p) => p.id)).toEqual(['flashcards']);
+      // survives a reload (stored plaintext, not encrypted)
+      expect(new SettingsService(file).getCustomPresets()[0]).toMatchObject({ id: 'flashcards', name: 'Flashcards' });
+      expect(JSON.parse(readFileSync(file, 'utf8')).customPresets).toHaveLength(1);
+    });
+
+    it('rejects a preset whose id collides with a built-in, without persisting', () => {
+      const s = new SettingsService(file);
+      const res = s.addCustomPreset({ id: 'explain', name: 'Mine', promptTemplate: 't' });
+      expect(res.ok).toBe(false);
+      expect(s.getCustomPresets()).toHaveLength(0);
+    });
+
+    it('rejects a duplicate custom id', () => {
+      const s = new SettingsService(file);
+      s.addCustomPreset({ id: 'cite', name: 'Cite', promptTemplate: 't' });
+      expect(s.addCustomPreset({ id: 'cite', name: 'Cite 2', promptTemplate: 't' }).ok).toBe(false);
+      expect(s.getCustomPresets()).toHaveLength(1);
+    });
+
+    it('removes a custom preset', () => {
+      const s = new SettingsService(file);
+      s.addCustomPreset({ id: 'cite', name: 'Cite', promptTemplate: 't' });
+      s.removeCustomPreset('cite');
+      expect(s.getCustomPresets()).toHaveLength(0);
+    });
+
+    it('keeps custom presets and keys independent on save', () => {
+      const s = new SettingsService(file);
+      s.setKey('openai', 'sk-x');
+      s.addCustomPreset({ id: 'cite', name: 'Cite', promptTemplate: 't' });
+      const reloaded = new SettingsService(file);
+      expect(reloaded.get().openaiKey).toBe('sk-x');
+      expect(reloaded.getCustomPresets()).toHaveLength(1);
+    });
+  });
 });

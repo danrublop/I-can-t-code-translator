@@ -1,0 +1,182 @@
+// Markdown file store: the source of truth for entry bodies.
+//
+// Each entry is one `<id>.md` file with a small YAML frontmatter block followed by the
+// answer body. We own both the writer and reader, so we use a minimal frontmatter
+// (de)serializer for our known fields rather than pulling in a YAML dependency. Tags are
+// a flow list (`tags: [a, b]`); everything else is a scalar.
+//
+//   ---
+//   id: 01J...
+//   created_at: 2026-05-25T17:00:00Z
+//   model: llama3.2
+//   source_app: Safari
+//   source_kind: text
+//   tags: [code, safari]
+//   ---
+//   <markdown body>
+
+import { readdirSync, readFileSync, writeFileSync, statSync, existsSync, mkdirSync, rmSync, copyFileSync } from 'fs';
+import { join, extname } from 'path';
+import type { DiskEntry } from './reconcile';
+import type { NotebookEntry, SourceKind } from './types';
+
+function esc(value: string): string {
+  // Quote scalars that could confuse the minimal parser.
+  return /[:#\n]/.test(value) ? JSON.stringify(value) : value;
+}
+
+function unesc(raw: string): string {
+  const v = raw.trim();
+  if (v.startsWith('"') && v.endsWith('"')) {
+    try {
+      return JSON.parse(v) as string;
+    } catch {
+      return v.slice(1, -1);
+    }
+  }
+  return v;
+}
+
+export function serializeEntry(entry: NotebookEntry): string {
+  const tags = entry.tags.map(esc).join(', ');
+  const fm = [
+    '---',
+    `id: ${esc(entry.id)}`,
+    `title: ${esc(entry.title)}`,
+    `created_at: ${esc(entry.createdAt)}`,
+    `model: ${esc(entry.model)}`,
+    `source_app: ${esc(entry.sourceApp)}`,
+    `source_kind: ${entry.sourceKind}`,
+    `pinned: ${entry.pinned ? 'true' : 'false'}`,
+    ...(entry.imagePath ? [`image: ${esc(entry.imagePath)}`] : []),
+    `tags: [${tags}]`,
+    '---',
+    '',
+  ].join('\n');
+  return `${fm}${entry.body}\n`;
+}
+
+/** Full parse of an entry file — every frontmatter field plus body. */
+type ParsedFile = NotebookEntry;
+
+/** Parse our own frontmatter format. Returns null if the block is missing/malformed. */
+export function parseEntry(text: string): ParsedFile | null {
+  if (!text.startsWith('---')) return null;
+  const end = text.indexOf('\n---', 3);
+  if (end === -1) return null;
+
+  const header = text.slice(3, end).trim();
+  const body = text.slice(end + 4).replace(/^\n/, '');
+
+  const e: NotebookEntry = {
+    id: '', title: '', body: '', tags: [], model: '', sourceApp: '',
+    sourceKind: 'text', pinned: false, createdAt: '',
+  };
+  for (const line of header.split('\n')) {
+    const idx = line.indexOf(':');
+    if (idx === -1) continue;
+    const key = line.slice(0, idx).trim();
+    const val = line.slice(idx + 1).trim();
+    if (key === 'id') e.id = unesc(val);
+    else if (key === 'title') e.title = unesc(val);
+    else if (key === 'model') e.model = unesc(val);
+    else if (key === 'source_app') e.sourceApp = unesc(val);
+    else if (key === 'source_kind') e.sourceKind = val === 'image' ? 'image' : 'text';
+    else if (key === 'created_at') e.createdAt = unesc(val);
+    else if (key === 'image') e.imagePath = unesc(val);
+    else if (key === 'pinned') e.pinned = val === 'true';
+    else if (key === 'tags') {
+      const inner = val.replace(/^\[/, '').replace(/\]$/, '').trim();
+      e.tags = inner.length ? inner.split(',').map((t) => unesc(t)).filter(Boolean) : [];
+    }
+  }
+  if (!e.id) return null;
+  e.body = body.replace(/\n$/, '');
+  return e;
+}
+
+export class MarkdownStore {
+  constructor(private readonly dir: string) {
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  }
+
+  private pathFor(id: string): string {
+    return join(this.dir, `${id}.md`);
+  }
+
+  /** Write (or overwrite) an entry's file. Returns the file path. */
+  write(entry: NotebookEntry): string {
+    const path = this.pathFor(entry.id);
+    writeFileSync(path, serializeEntry(entry), 'utf8');
+    return path;
+  }
+
+  /** Delete an entry's file if present. */
+  delete(id: string): void {
+    const path = this.pathFor(id);
+    if (existsSync(path)) rmSync(path);
+  }
+
+  /** Copy a capture image into the notebook's images/ dir, keyed by entry id. Returns the
+      stored absolute path (or the source unchanged if it's already inside images/). */
+  storeImage(id: string, srcPath: string): string {
+    const imagesDir = join(this.dir, 'images');
+    if (srcPath.startsWith(imagesDir)) return srcPath; // already stored
+    if (!existsSync(imagesDir)) mkdirSync(imagesDir, { recursive: true });
+    const dest = join(imagesDir, `${id}${extname(srcPath) || '.png'}`);
+    copyFileSync(srcPath, dest);
+    return dest;
+  }
+
+  /** Read one entry's raw parsed content, or null if absent/malformed. */
+  read(id: string): ParsedFile | null {
+    const path = this.pathFor(id);
+    if (!existsSync(path)) return null;
+    return parseEntry(readFileSync(path, 'utf8'));
+  }
+
+  /** List every valid `.md` entry on disk as a DiskEntry (id, body, tags, mtime). */
+  listDiskEntries(): DiskEntry[] {
+    if (!existsSync(this.dir)) return [];
+    const out: DiskEntry[] = [];
+    for (const file of readdirSync(this.dir)) {
+      if (!file.endsWith('.md')) continue;
+      const full = join(this.dir, file);
+      const parsed = parseEntry(readFileSync(full, 'utf8'));
+      if (!parsed) continue;
+      out.push({
+        id: parsed.id,
+        body: parsed.body,
+        frontmatterTags: parsed.tags,
+        mtimeMs: statSync(full).mtimeMs,
+        meta: {
+          title: parsed.title || undefined,
+          model: parsed.model || undefined,
+          sourceApp: parsed.sourceApp || undefined,
+          sourceKind: parsed.sourceKind,
+          createdAt: parsed.createdAt || undefined,
+          imagePath: parsed.imagePath || undefined,
+        },
+      });
+    }
+    return out;
+  }
+}
+
+/** Tiny helper so callers don't repeat the SourceKind union literal. */
+export function makeEntry(
+  fields: Omit<NotebookEntry, 'createdAt' | 'sourceKind' | 'title' | 'pinned'> & {
+    createdAt?: string;
+    sourceKind?: SourceKind;
+    title?: string;
+    pinned?: boolean;
+  },
+): NotebookEntry {
+  return {
+    ...fields,
+    title: fields.title ?? '',
+    pinned: fields.pinned ?? false,
+    sourceKind: fields.sourceKind ?? 'text',
+    createdAt: fields.createdAt ?? new Date().toISOString(),
+  };
+}

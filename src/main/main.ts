@@ -1,1283 +1,774 @@
-import { app, BrowserWindow, globalShortcut, ipcMain, clipboard } from 'electron';
-import { join } from 'path';
-import { OllamaService } from './services/ollama.service';
+import { app, BrowserWindow, globalShortcut, ipcMain, Tray, Menu, nativeImage, systemPreferences, shell, dialog } from 'electron';
+import { join, extname, basename } from 'path';
+import { randomUUID } from 'crypto';
+import { rmSync, existsSync, readFileSync, statSync } from 'fs';
 import { OllamaProcessService } from './services/ollama-process.service';
-import { CodeAnalysisService } from './services/code-analysis.service';
-import { analyticsService } from './services/analytics.service';
-import { authService } from './services/auth.service';
-import { gamificationService } from './services/gamification.service';
-import { WEBSITE_CONFIG } from './config/website';
-import { LicenseService } from './services/license.service';
-import { LICENSING_CONFIG } from './config/licensing.config';
-import { writeFile, readFile, existsSync, mkdirSync } from 'fs';
-import { promisify } from 'util';
+// Notch panel stack (notch/notebook pivot)
+import { createMacCaptureProvider, isAccessibilityTrusted } from './services/capture/mac-capture';
+import type { CaptureProvider } from './services/capture/capture';
+import { captureRegion } from './services/vision/screenshot';
+import { resolveOcrBinary, recognizeText } from './services/vision/ocr';
+import { fitFor, MODEL_CATALOG } from './services/models/model-capability';
+import { isVisionCapable } from './services/router/model-router';
+import { totalmem } from 'os';
+import { NotchController } from './services/notch/notch-controller';
+import { StreamSession } from './services/notch/stream-session';
+import { OllamaLlmClient } from './services/llm/ollama-llm-client';
+import { OpenAiLlmClient } from './services/llm/openai-llm-client';
+import { AnthropicLlmClient } from './services/llm/anthropic-llm-client';
+import { MultiLlmClient, CLOUD_MODELS } from './services/llm/multi-llm-client';
+import { SettingsService, settingsPath } from './services/settings/settings-service';
+import { MarkdownStore } from './services/notebook/markdown-store';
+import { migrateHtmlBodies } from './services/notebook/migrate-html-bodies';
+import { NotebookStore } from './services/notebook/notebook-store';
+import { MemoryNotebookIndex } from './services/notebook/memory-index';
+import type { NotebookIndex } from './services/notebook/types';
+import { BUILT_IN_PRESETS } from './services/presets/presets';
 
-// Promisify file operations
-const writeFileAsync = promisify(writeFile);
-const readFileAsync = promisify(readFile);
+const DEFAULT_TEXT_MODEL = 'mistral:latest';
+const VISION_MODEL = 'llava:latest';
 
+// ── Llamas Remote main process ───────────────────────────────────────────────
+//
+//   hotkey / tray ─▶ capture selection ─▶ show notch panel ─▶ panel runs query
+//                                                                │
+//                            NotchController ─▶ Ollama ─▶ stream tokens ─▶ panel
+//                                    └─▶ NotebookStore (markdown + FTS5 index)
+//
+// The app lives in the menu bar (Tray) and the notch panel; there is no always-on
+// toolbar window. Legacy auth/license/explanation UI was removed in the pivot.
 class MainProcess {
-  private mainWindow: BrowserWindow | null = null;
-  private explanationWindow: BrowserWindow | null = null;
-  private websiteAuthWindow: BrowserWindow | null = null;
-  private ollamaService: OllamaService;
-  private ollamaProcessService: OllamaProcessService;
-  private codeAnalysisService: CodeAnalysisService;
-  private licenseService: LicenseService;
-  // private explanationStorageService: ExplanationStorageService;
-  private isToolbarVisible = true;
-  private clipboardWatcher: NodeJS.Timeout | null = null;
-  private lastClipboardContent = '';
-  private savedExplanations: any[] = []; // In-memory storage for saved explanations
-  private explanationsFilePath: string;
+  private notchPanel: BrowserWindow | null = null;
+  private notchReady = false;
+  private pendingCaptured: { selection: string; sourceApp?: string; empty: boolean; error?: string } | null = null;
+  private pendingExpand = false;
+  private accessibilityPrompted = false;
+  private screenshotInFlight = false;
+  private tray: Tray | null = null;
 
-  constructor() {
-    this.ollamaService = new OllamaService();
-    this.ollamaProcessService = new OllamaProcessService();
-    this.codeAnalysisService = new CodeAnalysisService();
-    this.licenseService = new LicenseService();
-    // this.explanationStorageService = new ExplanationStorageService();
-
-    // Set up persistent storage path for explanations
-    const userDataPath = app.getPath('userData');
-    const explanationsDir = join(userDataPath, 'explanations');
-    if (!existsSync(explanationsDir)) {
-      mkdirSync(explanationsDir, { recursive: true });
-    }
-    this.explanationsFilePath = join(explanationsDir, 'explanations.json');
-  }
+  private ollamaProcessService = new OllamaProcessService();
+  private notchController: NotchController | null = null;
+  private streamSession: StreamSession | null = null;
+  private captureProvider: CaptureProvider | null = null;
+  private notebookStore: NotebookStore | null = null;
+  private llmClient: OllamaLlmClient | null = null;
+  private settingsService: SettingsService | null = null;
+  private notebookWindow: BrowserWindow | null = null;
+  // Held by reference and handed to NotchController; mutated when the user changes their
+  // default model on the Models page, so routing picks it up without rebuilding the controller.
+  private routerConfig = { defaultTextModel: DEFAULT_TEXT_MODEL, visionModel: VISION_MODEL };
 
   async initialize(): Promise<void> {
-    // Wait for Electron to be ready
     await app.whenReady();
 
-    // Start Ollama automatically
+    // Start Ollama automatically (auto-install/start handled by the service).
     await this.startOllamaIfNeeded();
 
-    // Load existing explanations from file
-    await this.loadExplanationsFromFile();
+    // Wire the notch panel stack (capture + controller + notebook).
+    this.setupNotch();
 
-    // Create the main toolbar window
-    this.createMainWindow();
+    // Menu-bar presence + the notch panel (the primary UI).
+    this.createTray();
+    this.createNotchPanel();
+    if (this.notchPanel) this.notchPanel.showInactive(); // visible on first launch
 
-    // Register global shortcuts
     this.registerGlobalShortcuts();
-
-    // Set up IPC handlers
-    this.setupIpcHandlers();
-
-    // Handle app lifecycle
+    this.setupNotchIpc();
     this.handleAppLifecycle();
 
-    // Start Ollama automatically
-    this.startOllamaIfNeeded();
+    // No dock icon — this is a menu-bar utility.
+    if (process.platform === 'darwin') app.dock?.hide();
 
-    // Track app launch
-    analyticsService.trackAppLaunch();
-
-    console.log('i cant code - Initialized successfully');
+    console.log('Llamas Remote — initialized');
   }
 
-  private checkAndShowOnboarding(): void {
-    // Only show onboarding for authenticated users
-    if (false) {
-      console.log('User not authenticated - skipping onboarding');
-      return;
-    }
+  private setupNotch(): void {
+    try {
+      const userData = app.getPath('userData');
+      const notebookDir = join(userData, 'notebook');
 
-    console.log('Checking if authenticated user needs onboarding...');
-
-    // For authenticated users, check if they need onboarding
-    // The explanation window will check localStorage and show onboarding if needed
-    // No delay - create window immediately to prevent white popup
-    this.createExplanationWindow();
-  }
-
-  private createMainWindow(): void {
-    if (this.mainWindow) {
-      this.mainWindow.focus();
-      return;
-    }
-
-    // Get screen dimensions
-    const { screen } = require('electron');
-
-    // Calculate toolbar position (center at top) with content-based dimensions
-    const toolbarHeight = 40;
-    const toolbarY = 50; // Move down from top to avoid menu bar
-
-    this.mainWindow = new BrowserWindow({
-      width: 700, // Sweet spot - enough space without excess
-      height: toolbarHeight,
-      x: 0, // Will center after content loads
-      y: toolbarY,
-      frame: false,
-      resizable: true,
-      alwaysOnTop: true,
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: true,
-        preload: join(__dirname, 'preload.js')
-      }
-    });
-
-    // Fix the path to load from the correct dist directory
-    const toolbarPath = join(__dirname, '..', 'toolbar.html');
-    console.log('Loading toolbar from:', toolbarPath);
-
-    this.mainWindow.loadFile(toolbarPath).catch(error => {
-      console.error('Failed to load toolbar:', error);
-    });
-
-    // Wait for the window to be ready before sending data
-    this.mainWindow.webContents.on('did-finish-load', () => {
-      console.log('i cant code - Toolbar loaded and ready');
-
-      // Center the window after content loads
-      if (this.mainWindow) {
-        const { width: contentWidth } = this.mainWindow.getContentBounds();
-        const { width: screenWidth } = screen.getPrimaryDisplay().workAreaSize;
-        const toolbarX = Math.round((screenWidth - contentWidth) / 2);
-        this.mainWindow.setPosition(toolbarX, toolbarY);
+      // One-time HTML→Markdown body migration (backup-first, idempotent). Runs BEFORE the
+      // index rebuild so reconcile re-indexes from migrated Markdown, not stale HTML.
+      try {
+        const res = migrateHtmlBodies(notebookDir);
+        if (!res.alreadyDone) console.log(`notebook migration: ${res.migrated} migrated, ${res.skipped} skipped, ${res.failed} failed`);
+      } catch (e) {
+        console.warn('notebook HTML→Markdown migration failed:', e);
       }
 
-      // Start clipboard monitoring now that the window is ready
-      this.startClipboardMonitoring();
+      const files = new MarkdownStore(notebookDir);
 
-      // Send initial clipboard data
-      this.updateLineCount(clipboard.readText());
-
-      // Check authentication status and notify the renderer
-      const isAuthenticated = authService.isAuthenticated();
-      console.log('User authentication status:', isAuthenticated);
-
-      // Send authentication status to the main window
-      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-        this.mainWindow.webContents.send('auth-status', {
-          isAuthenticated,
-          user: authService.getUser()
-        });
+      let index: NotebookIndex;
+      try {
+        // Lazy require: if better-sqlite3 isn't built for this Electron ABI, fall back to
+        // an in-memory index so the app still launches (persistence just won't survive a restart).
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { SqliteNotebookIndex } = require('./services/notebook/sqlite-index');
+        index = new SqliteNotebookIndex(join(userData, 'notebook.db'));
+      } catch (err) {
+        console.warn('SQLite index unavailable; using in-memory index.', err);
+        index = new MemoryNotebookIndex();
       }
 
-      // Only check for onboarding if user is authenticated
-      if (isAuthenticated) {
-        this.checkAndShowOnboarding();
-      } else {
-        console.log('User not authenticated - login required in main window');
-      }
-    });
-
-    this.mainWindow.on('closed', () => {
-      this.mainWindow = null;
-    });
-  }
-
-  private createExplanationWindow(): void {
-    if (this.explanationWindow) {
-      console.log('Explanation window already exists, focusing...');
-      this.explanationWindow.focus();
-      return;
-    }
-
-    console.log('Creating new explanation window...');
-
-    // Create explanation window
-    this.explanationWindow = new BrowserWindow({
-      width: 800,
-      height: 600,
-      frame: false, // Remove default frame to show custom header
-      resizable: true,
-      alwaysOnTop: false,
-      show: false, // Don't show until ready to prevent white flash
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: true,
-        preload: join(__dirname, 'preload.js')
-      }
-    });
-
-    console.log('Explanation window created, loading HTML...');
-
-    // Load explanation HTML
-    const explanationPath = join(__dirname, '..', 'explanation.html');
-    console.log('Loading explanation window from:', explanationPath);
-
-    this.explanationWindow.loadFile(explanationPath).catch(error => {
-      console.error('Failed to load explanation window:', error);
-    });
-
-    this.explanationWindow.webContents.on('did-finish-load', () => {
-      console.log('i cant code - Explanation window loaded and ready');
-
-      // Send authentication status to explanation window
-      const isAuthenticated = authService.isAuthenticated();
-      const user = authService.getUser();
-
-      if (this.explanationWindow && !this.explanationWindow.isDestroyed()) {
-        this.explanationWindow.webContents.send('auth-status', {
-          isAuthenticated,
-          user
-        });
+      this.notebookStore = new NotebookStore(files, index);
+      try {
+        this.notebookStore.syncFromDisk();
+      } catch (e) {
+        console.warn('notebook syncFromDisk failed:', e);
       }
 
-      // Send initial message to explanation window
-      console.log('Sending initial message to explanation window');
-      this.sendExplanationData({
-        status: 'idle', // Changed from 'processing' to 'idle' for initial state
-        hasExplanation: false,
-        explanationLength: 0
+      this.captureProvider = createMacCaptureProvider();
+      this.llmClient = new OllamaLlmClient();
+      this.settingsService = new SettingsService(settingsPath(userData));
+      // Seed the router defaults from saved settings (fall back to the built-ins).
+      const s0 = this.settingsService.get();
+      this.routerConfig.defaultTextModel = s0.defaultTextModel || DEFAULT_TEXT_MODEL;
+      this.routerConfig.visionModel = s0.defaultVisionModel || VISION_MODEL;
+      const llm = new MultiLlmClient({
+        ollama: this.llmClient,
+        openai: new OpenAiLlmClient(() => this.settingsService?.get().openaiKey),
+        anthropic: new AnthropicLlmClient(() => this.settingsService?.get().anthropicKey),
       });
-
-      // Show the window after everything is ready
-      console.log('Showing explanation window...');
-      if (this.explanationWindow && !this.explanationWindow.isDestroyed()) {
-        this.explanationWindow.show();
-        console.log('Explanation window shown successfully');
-      }
-    });
-
-    this.explanationWindow.on('closed', () => {
-      console.log('Explanation window closed');
-      this.explanationWindow = null;
-    });
+      this.notchController = new NotchController({
+        llm,
+        notebook: this.notebookStore,
+        routerConfig: this.routerConfig,
+        presets: BUILT_IN_PRESETS,
+        newId: () => randomUUID(),
+        now: () => new Date().toISOString(),
+      });
+      // Owns streaming into the notebook window: buffers until the renderer is ready,
+      // tags each run so a superseding query can't be overwritten by a stale stream, and
+      // carries an AbortSignal so a superseded / window-closed run stops generating.
+      this.streamSession = new StreamSession({
+        send: (channel, payload) => this.sendNotebook(channel, payload),
+        newId: () => randomUUID(),
+      });
+    } catch (err) {
+      console.error('Failed to set up notch stack:', err);
+    }
   }
 
-  private createWebsiteAuthWindow(url: string): void {
-    // Create a window for the website authentication
-    const authWindow = new BrowserWindow({
-      width: 1200,
-      height: 800,
-      frame: true, // Show frame for website navigation
-      resizable: true,
-      alwaysOnTop: false,
-      show: false, // Don't show until ready to prevent white flash
+  // Dynamic-Island style: a transparent canvas pinned to the top-center, the same width
+  // as the menu bar around the notch. The renderer draws a black island fused to the
+  // notch (square top, round bottom) that expands on hover/hotkey. The window stays
+  // click-through (forwarding move events so :hover works) until the pointer is over the
+  // island or the panel is expanded — so it never blocks the screen underneath.
+  private createNotchPanel(): void {
+    if (this.notchPanel && !this.notchPanel.isDestroyed()) return;
+    const { screen } = require('electron');
+    const display = screen.getPrimaryDisplay();
+    const width = Math.min(820, display.workAreaSize.width);
+    const height = 540;
+    const x = Math.round((display.bounds.width - width) / 2); // centered on the physical display
+
+    this.notchReady = false;
+    this.notchPanel = new BrowserWindow({
+      width,
+      height,
+      x,
+      y: 0, // flush with the very top so the island fuses with the notch
+      frame: false,
+      transparent: true,
+      hasShadow: false,
+      resizable: false,
+      movable: false,
+      alwaysOnTop: true,
+      show: false,
+      skipTaskbar: true,
+      fullscreenable: false,
+      // Defeats AppKit's "constrain frame to visible screen" clamp, so a y:0 window can
+      // sit OVER the menu bar (otherwise it's parked at the work-area top, below the bar).
+      enableLargerThanScreen: true,
+      // Float above full-screen apps and the menu bar.
+      type: process.platform === 'darwin' ? 'panel' : undefined,
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
-        preload: join(__dirname, 'preload-website.js')
+        preload: join(__dirname, 'preload-panel.js'),
+      },
+    });
+    this.notchPanel.setAlwaysOnTop(true, 'screen-saver');
+    if (process.platform === 'darwin') {
+      this.notchPanel.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    }
+
+    this.notchPanel.loadFile(join(__dirname, '..', 'panel.html')).catch((e) => console.error('Failed to load panel:', e));
+
+    this.notchPanel.webContents.on('did-finish-load', () => {
+      this.notchReady = true;
+      // Force the window to the ABSOLUTE display top (over the menu-bar level), not the
+      // work-area top — otherwise macOS parks it below the menu bar and the island floats.
+      if (this.notchPanel && !this.notchPanel.isDestroyed()) {
+        const d = require('electron').screen.getPrimaryDisplay();
+        const w = Math.min(820, d.bounds.width);
+        // Force the window to the ABSOLUTE display top (over the menu bar), not the
+        // work-area top — else macOS parks it below the menu bar and the island floats.
+        this.notchPanel.setAlwaysOnTop(true, 'screen-saver');
+        this.notchPanel.setBounds({ x: Math.round((d.bounds.width - w) / 2), y: d.bounds.y, width: w, height: 540 });
+      }
+      if (!this.notchPanel || this.notchPanel.isDestroyed()) return;
+      // Flush a capture/expand requested via the hotkey before the window finished loading.
+      if (this.pendingCaptured) {
+        this.notchPanel.webContents.send('panel:captured', this.pendingCaptured);
+        this.pendingCaptured = null;
+      }
+      if (this.pendingExpand) {
+        this.notchPanel.webContents.send('panel:expand');
+        this.notchPanel.setIgnoreMouseEvents(false);
+        this.pendingExpand = false;
+      } else {
+        // Idle: click-through, but forward move events so the renderer can detect hover.
+        this.notchPanel.setIgnoreMouseEvents(true, { forward: true });
       }
     });
 
-    // Load the website URL
-    authWindow.loadURL(url);
+    // On blur, collapse back to the island and go click-through (unless mid-screenshot).
+    this.notchPanel.on('blur', () => {
+      if (this.screenshotInFlight) return;
+      if (this.notchPanel && !this.notchPanel.isDestroyed()) {
+        this.notchPanel.webContents.send('panel:collapse');
+        this.notchPanel.setIgnoreMouseEvents(true, { forward: true });
+      }
+    });
+    this.notchPanel.on('closed', () => {
+      this.notchPanel = null;
+      this.notchReady = false;
+    });
+  }
 
-    // Show window when ready to prevent white flash
-    authWindow.once('ready-to-show', () => {
-      authWindow.show();
+  // When capture is blocked, trigger the real macOS Accessibility prompt (adds the app to
+  // the list) and open the Accessibility settings pane. Fires at most once per session.
+  private promptAccessibility(): void {
+    if (this.accessibilityPrompted || process.platform !== 'darwin') return;
+    this.accessibilityPrompted = true;
+    try {
+      // prompting=true surfaces the system "grant Accessibility" dialog for this app.
+      systemPreferences.isTrustedAccessibilityClient(true);
+      shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility');
+    } catch (e) {
+      console.warn('Failed to prompt for Accessibility:', e);
+    }
+  }
+
+  private async handleNotchHotkey(): Promise<void> {
+    this.createNotchPanel();
+    const panel = this.notchPanel;
+    if (!panel) return;
+
+    // First explicit use without Accessibility granted: surface the permission prompt up
+    // front rather than after a confusing empty capture (the native AX read returns null
+    // silently when untrusted).
+    if (process.platform === 'darwin' && !isAccessibilityTrusted()) this.promptAccessibility();
+
+    // Capture the current selection BEFORE showing our panel (focus is still on the
+    // source app). On-demand only — never monitored in the background. This is an explicit
+    // action, so the synthetic-Cmd+C clipboard fallback is allowed.
+    let captured: { selection: string; sourceApp?: string; empty: boolean; error?: string } =
+      { selection: '', sourceApp: undefined, empty: true };
+    try {
+      if (this.captureProvider) {
+        const res = await this.captureProvider.captureSelection({ allowClipboardFallback: true });
+        captured = { selection: res.text, sourceApp: res.sourceApp, empty: res.text.trim().length === 0 };
+      }
+    } catch (e) {
+      console.warn('Selection capture failed:', e);
+      captured = { selection: '', sourceApp: undefined, empty: true, error: e instanceof Error ? e.message : 'capture failed' };
+      this.promptAccessibility();
+    }
+
+    if (this.notchReady && !panel.isDestroyed()) {
+      panel.webContents.send('panel:captured', captured);
+      panel.webContents.send('panel:expand');
+      panel.setIgnoreMouseEvents(false); // interactive so the expanded panel takes input
+    } else {
+      // Window still loading — flush both on did-finish-load (and become interactive then).
+      this.pendingCaptured = captured;
+      this.pendingExpand = true;
+    }
+
+    panel.show();
+    panel.focus();
+  }
+
+  // Resolve a bundled asset both in dev (build-resources/) and packaged (extraResources
+  // copies it to Contents/Resources/).
+  private assetPath(name: string): string {
+    return app.isPackaged ? join(process.resourcesPath, name) : join(app.getAppPath(), 'build-resources', name);
+  }
+
+  private createTray(): void {
+    try {
+      // Menu-bar template image (the gamepad-directional symbol). Template = monochrome
+      // black+alpha; macOS recolors it for the light/dark menu bar. The @2x sibling is
+      // auto-loaded for Retina.
+      const iconPath = this.assetPath('trayTemplate.png');
+      const image = nativeImage.createFromPath(iconPath);
+      if (!image.isEmpty()) image.setTemplateImage(true);
+      this.tray = new Tray(image.isEmpty() ? nativeImage.createEmpty() : image);
+      this.tray.setToolTip('Llamas Remote');
+      const menu = Menu.buildFromTemplate([
+        { label: 'Ask  (⌘⇧Space)', click: () => this.handleNotchHotkey() },
+        { label: 'Notebook', click: () => this.showNotebook() },
+        { label: 'Settings…', click: () => this.showSettings() },
+        { type: 'separator' },
+        { label: 'Quit Llamas Remote', click: () => app.quit() },
+      ]);
+      this.tray.setContextMenu(menu);
+      this.tray.on('click', () => this.toggleNotch());
+    } catch (err) {
+      console.warn('Failed to create tray:', err);
+    }
+  }
+
+  private toggleNotch(): void {
+    // The island always hangs from the notch; tray/activate just pops it open.
+    this.handleNotchHotkey();
+  }
+
+  // The notebook is the content window: a normal resizable window where answers stream in.
+  private createNotebookWindow(): void {
+    if (this.notebookWindow && !this.notebookWindow.isDestroyed()) return;
+    this.notebookWindow = new BrowserWindow({
+      width: 900,
+      height: 720,
+      minWidth: 600,
+      show: false,
+      title: 'Llamas Remote — Notebook',
+      titleBarStyle: 'hiddenInset',
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        preload: join(__dirname, 'preload-notebook.js'),
+      },
+    });
+    // A fresh load means the renderer hasn't mounted its listeners yet — buffer events
+    // until it signals 'notebook:ready' (handshake), and re-buffer on any reload.
+    this.streamSession?.markNotReady();
+    this.notebookWindow.webContents.on('did-start-loading', () => this.streamSession?.markNotReady());
+    this.notebookWindow.loadFile(join(__dirname, '..', 'notebook.html')).catch((e) => console.error('Failed to load notebook:', e));
+    this.notebookWindow.on('closed', () => {
+      this.notebookWindow = null;
+      // No window to stream into — stop any in-flight generation and re-buffer.
+      this.streamSession?.abortActive();
+      this.streamSession?.markNotReady();
+    });
+  }
+
+  private showNotebook(): void {
+    this.createNotebookWindow();
+    if (this.notebookWindow && !this.notebookWindow.isDestroyed()) {
+      if (process.platform === 'darwin') app.dock?.show();
+      this.notebookWindow.show();
+      this.notebookWindow.focus();
+    }
+  }
+
+  private sendNotebook(channel: string, payload?: unknown): void {
+    if (this.notebookWindow && !this.notebookWindow.isDestroyed()) {
+      this.notebookWindow.webContents.send(channel, payload);
+    }
+  }
+
+  // Read attached files to text for the prompt. Caps per-file size (256 KB) and total
+  // (768 KB) so a stray binary or huge log can't blow the context window; unreadable or
+  // over-cap files are skipped (the model still gets the rest of the query).
+  private readAttachments(paths?: string[]): Array<{ name: string; content: string }> {
+    if (!paths?.length) return [];
+    const PER_FILE = 256 * 1024;
+    const TOTAL = 768 * 1024;
+    const out: Array<{ name: string; content: string }> = [];
+    let used = 0;
+    for (const p of paths.slice(0, 10)) {
+      try {
+        if (!existsSync(p) || statSync(p).size > PER_FILE) continue;
+        const content = readFileSync(p, 'utf8');
+        if (used + content.length > TOTAL) break;
+        used += content.length;
+        out.push({ name: basename(p), content });
+      } catch { /* skip unreadable / non-text files */ }
+    }
+    return out;
+  }
+
+  // Settings lives in the notebook's right pane (single, unified surface). Open/focus the
+  // notebook window and tell it to switch to the settings view — waiting for first load if
+  // the window was just created so the renderer is listening when the message arrives.
+  private showSettings(): void {
+    const fresh = !this.notebookWindow || this.notebookWindow.isDestroyed();
+    this.showNotebook();
+    const win = this.notebookWindow;
+    if (!win) return;
+    if (fresh) win.webContents.once('did-finish-load', () => win.webContents.send('notebook:show-settings'));
+    else win.webContents.send('notebook:show-settings');
+  }
+
+  private setupNotchIpc(): void {
+    ipcMain.handle('panel:run-query', async (_event, req: {
+      kind: 'text' | 'image';
+      presetId?: string;
+      freeText?: string;
+      selection?: string;
+      sourceApp?: string;
+      imagePath?: string;
+      userSelectedModel?: string;
+      attachments?: string[]; // absolute paths the user attached via the picker
+      autoOpen?: boolean; // open the notebook automatically when done (default true)
+    }) => {
+      if (!this.notchController || !this.streamSession) return { ok: false, error: 'Notch controller not ready' };
+      const session = this.streamSession;
+
+      const attachments = this.readAttachments(req.attachments);
+
+      // The answer streams into the notebook window (created hidden if not open). The panel
+      // only shows progress + an Open button. beginRun aborts any prior in-flight query and
+      // gives us a run id (so its late tokens can't overwrite this one) + an abort signal.
+      this.createNotebookWindow();
+      const { runId, signal } = session.beginRun();
+      const preset = req.presetId ? BUILT_IN_PRESETS.find((p) => p.id === req.presetId) : undefined;
+      const label = preset?.name ?? (req.freeText?.trim() || 'Ask');
+      const displayModel = req.userSelectedModel || (req.kind === 'image' ? this.routerConfig.visionModel : this.routerConfig.defaultTextModel);
+      session.emit(runId, 'notebook:start', { prompt: label, selection: req.selection ?? '', sourceApp: req.sourceApp, model: displayModel });
+
+      try {
+        const result = await this.notchController.runQuery({
+          kind: req.kind,
+          presetId: req.presetId,
+          freeText: req.freeText,
+          userSelectedModel: req.userSelectedModel,
+          capture:
+            req.kind === 'text'
+              ? { text: req.selection ?? '', sourceApp: req.sourceApp, via: 'clipboard' }
+              : undefined,
+          imagePath: req.imagePath,
+          attachments,
+          signal,
+          onToken: (delta) => session.emit(runId, 'notebook:token', delta),
+        });
+        session.emit(runId, 'notebook:done', result.answer);
+        if (result.entry) session.emit(runId, 'notebook:saved', result.entry.id);
+        if (req.autoOpen !== false) this.showNotebook(); // auto-open when done
+        return { ok: true, answer: result.answer, model: result.model, entryId: result.entry?.id };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        // A cancelled run was superseded/closed deliberately — don't flash an error.
+        // Match the explicit 'cancelled' marker AND any stream-level cancel that landed
+        // after the signal aborted (axios surfaces those as "...stream error: canceled").
+        const wasCancelled = message === 'cancelled' || signal.aborted || /cancell?ed/i.test(message);
+        if (!wasCancelled) {
+          session.emit(runId, 'notebook:error', message);
+          if (req.autoOpen !== false) this.showNotebook();
+        }
+        return { ok: false, error: message };
+      } finally {
+        session.endRun(runId);
+        // Clean up the temp screenshot once the model has consumed it.
+        if (req.kind === 'image' && req.imagePath && existsSync(req.imagePath)) {
+          try { rmSync(req.imagePath); } catch { /* ignore */ }
+        }
+      }
     });
 
-    // Handle window close - ensure it's properly cleaned up
-    authWindow.on('closed', () => {
-      console.log('Website auth window closed');
-      this.websiteAuthWindow = null;
+    // Let the panel attach files: open a native picker and hand back the chosen paths +
+    // display names (the panel can't touch the filesystem). Contents are read at run time.
+    ipcMain.handle('panel:pick-files', async () => {
+      const win = this.notchPanel ?? undefined;
+      const result = win
+        ? await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'] })
+        : await dialog.showOpenDialog({ properties: ['openFile', 'multiSelections'] });
+      if (result.canceled) return [];
+      return result.filePaths.map((p) => ({ path: p, name: basename(p) }));
     });
 
-    // Handle page load errors
-    authWindow.webContents.on('did-fail-load', () => {
-      console.log('Website auth window failed to load, closing...');
-      authWindow.close();
-      this.websiteAuthWindow = null;
+    // On-demand capture when the panel opens (hover/click), while the source app is still
+    // frontmost. The panel becomes mouse-interactive without taking key focus, so a
+    // synthetic Cmd+C still targets the app the user was in.
+    ipcMain.handle('panel:capture', async () => {
+      if (!this.captureProvider) return { selection: '', sourceApp: undefined, empty: true };
+      try {
+        // Hover-open is passive: do the native AX read only, never inject a synthetic Cmd+C
+        // just because the panel opened. The hotkey path (handleNotchHotkey) allows the
+        // clipboard fallback because it's an explicit user action.
+        const r = await this.captureProvider.captureSelection({ allowClipboardFallback: false });
+        return { selection: r.text, sourceApp: r.sourceApp, empty: r.text.trim().length === 0 };
+      } catch (e) {
+        console.warn('panel:capture failed:', e);
+        this.promptAccessibility();
+        return { selection: '', sourceApp: undefined, empty: true, error: e instanceof Error ? e.message : 'capture failed' };
+      }
     });
 
-    // Store reference to close it later
-    this.websiteAuthWindow = authWindow;
+    // The panel's saved default models (so its picker reflects the Models-page choice).
+    ipcMain.handle('panel:defaults', () => {
+      const s = this.settingsService?.get() ?? {};
+      return { text: s.defaultTextModel, vision: s.defaultVisionModel };
+    });
+
+    // Renderer handshake: the notebook view has mounted and attached its notebook:* listeners.
+    // Flush anything buffered while it was loading (fixes the first-answer-invisible drop).
+    ipcMain.on('notebook:ready', () => this.streamSession?.markReady());
+
+    // Inline generation from the notebook itself: a `/` command (or freeform prompt) runs
+    // against a model and streams INTO a specific AI block in the open note. Distinct from
+    // panel:run-query — it does NOT create a new note (persist:false) and uses notebook:gen-*
+    // channels tagged with the target blockId so the renderer streams into the right block.
+    ipcMain.handle('notebook:generate', async (_event, req: {
+      blockId: string;
+      commandId?: string;        // built-in slash-command (preset) id
+      freeText?: string;         // custom prompt / typed follow-up
+      selection?: string;        // text the command operates on (may be empty for pure generate)
+      userSelectedModel?: string;
+    }) => {
+      if (!this.notchController || !this.streamSession) return { ok: false, error: 'Notebook generation not ready' };
+      const session = this.streamSession;
+      const { runId, signal } = session.beginRun();
+      const displayModel = req.userSelectedModel || DEFAULT_TEXT_MODEL;
+      session.emit(runId, 'notebook:gen-start', { blockId: req.blockId, model: displayModel });
+      try {
+        const result = await this.notchController.runQuery({
+          kind: 'text',
+          presetId: req.commandId, // built-in presets; custom user commands resolve once persisted in settings
+          freeText: req.freeText,
+          userSelectedModel: req.userSelectedModel,
+          capture: { text: req.selection ?? '', via: 'clipboard' },
+          persist: false, // the answer lives in a block inside the current note, not a new entry
+          signal,
+          onToken: (delta) => session.emit(runId, 'notebook:gen-token', { blockId: req.blockId, delta }),
+        });
+        session.emit(runId, 'notebook:gen-done', { blockId: req.blockId, answer: result.answer, model: result.model });
+        return { ok: true, model: result.model, answer: result.answer };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        if (message !== 'cancelled') session.emit(runId, 'notebook:gen-error', { blockId: req.blockId, message });
+        return { ok: false, error: message };
+      } finally {
+        session.endRun(runId);
+      }
+    });
+
+    // Open the notebook window immediately (the panel's Open button) to watch streaming.
+    ipcMain.on('open-notebook', () => this.showNotebook());
+
+    // Model picker = local Ollama models + cloud models for providers whose key is set.
+    ipcMain.handle('panel:models', async () => {
+      const local = this.llmClient ? await this.llmClient.listModels() : [];
+      const s = this.settingsService?.get() ?? {};
+      const cloud = [
+        ...(s.openaiKey ? CLOUD_MODELS.openai : []),
+        ...(s.anthropicKey ? CLOUD_MODELS.anthropic : []),
+      ];
+      return [...local, ...cloud];
+    });
+
+    // Settings window + operations.
+    ipcMain.on('open-settings', () => this.showSettings());
+    ipcMain.handle('settings:get', () => this.settingsService?.getRedacted() ?? { openaiKeySet: false, anthropicKeySet: false });
+    ipcMain.handle('settings:set-key', (_e, provider: 'openai' | 'anthropic', key: string) => {
+      this.settingsService?.setKey(provider, key);
+    });
+    ipcMain.handle('ollama:pull', async (event, name: string) => {
+      if (!this.llmClient || !name.trim()) return { ok: false, error: 'No model name' };
+      try {
+        await this.llmClient.pullModel(name.trim(), (status, percent) => {
+          if (!event.sender.isDestroyed()) event.sender.send('settings:pull-progress', { name, status, percent });
+        });
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : 'Pull failed' };
+      }
+    });
+
+    // Notebook (notes app) operations.
+    ipcMain.handle('notebook:list', () => this.notebookStore?.list() ?? []);
+    ipcMain.handle('notebook:search', (_e, query: string) => this.notebookStore?.search(query) ?? []);
+    ipcMain.handle('notebook:get', (_e, id: string) => this.notebookStore?.getBody(id) ?? null);
+    ipcMain.handle('notebook:image', (_e, id: string) => {
+      const p = this.notebookStore?.getImagePath(id);
+      if (!p || !existsSync(p)) return null;
+      try {
+        const ext = extname(p).slice(1).toLowerCase() || 'png';
+        const mime = ext === 'jpg' ? 'jpeg' : ext;
+        return `data:image/${mime};base64,${readFileSync(p).toString('base64')}`;
+      } catch {
+        return null;
+      }
+    });
+    ipcMain.handle('notebook:rename', (_e, id: string, title: string) => { this.notebookStore?.rename(id, title); });
+    ipcMain.handle('notebook:pin', (_e, id: string, pinned: boolean) => { this.notebookStore?.setPinned(id, pinned); });
+    ipcMain.handle('notebook:update-body', (_e, id: string, body: string) => { this.notebookStore?.updateBody(id, body); });
+    ipcMain.handle('notebook:hide', (_e, id: string) => { this.notebookStore?.hide(id); });
+    ipcMain.handle('notebook:restore', (_e, id: string) => { this.notebookStore?.restore(id); });
+    ipcMain.handle('notebook:delete', (_e, id: string) => { this.notebookStore?.delete(id); });
+
+    ipcMain.handle('panel:screenshot', async () => {
+      if (this.screenshotInFlight) return null; // a capture is already up — don't overlap crosshairs
+      this.screenshotInFlight = true;
+      try {
+        const { path } = await captureRegion();
+        return path;
+      } catch (e) {
+        console.error('Screenshot failed:', e);
+        return null;
+      } finally {
+        this.screenshotInFlight = false;
+        if (this.notchPanel && !this.notchPanel.isDestroyed()) {
+          this.notchPanel.show();
+          this.notchPanel.focus();
+        }
+      }
+    });
+
+    // Grab text from a screen region with NO model: screencapture -i, then on-device
+    // Vision OCR. Sidesteps vision-model RAM cost entirely. Returns recognized text.
+    ipcMain.handle('panel:ocr', async () => {
+      if (this.screenshotInFlight) return { text: '', cancelled: true }; // capture already in flight
+      this.screenshotInFlight = true;
+      let shot: string | null = null;
+      try {
+        const { path } = await captureRegion();
+        shot = path;
+        if (!shot) return { text: '', cancelled: true };
+        const bin = resolveOcrBinary({ isPackaged: app.isPackaged, resourcesPath: process.resourcesPath, appPath: app.getAppPath() });
+        const text = await recognizeText(bin, shot);
+        return { text };
+      } catch (e) {
+        console.error('OCR failed:', e);
+        return { text: '', error: e instanceof Error ? e.message : 'OCR failed' };
+      } finally {
+        this.screenshotInFlight = false;
+        if (shot && existsSync(shot)) { try { rmSync(shot); } catch { /* ignore */ } }
+        if (this.notchPanel && !this.notchPanel.isDestroyed()) { this.notchPanel.show(); this.notchPanel.focus(); }
+      }
+    });
+
+    // Models page: installed models with size + RAM-fit badge + vision flag, plus cloud
+    // models when a key is set. "fit" is a capacity estimate (see model-capability.ts).
+    ipcMain.handle('models:list-detailed', async () => {
+      const totalRam = totalmem();
+      const installed = this.llmClient ? await this.llmClient.listModelsDetailed() : [];
+      const local = installed.map((m) => {
+        const vision = isVisionCapable(m.name);
+        return {
+          id: m.name,
+          provider: 'ollama' as const,
+          sizeBytes: m.sizeBytes,
+          vision,
+          installed: true,
+          fit: fitFor({ modelBytes: m.sizeBytes, totalRamBytes: totalRam, isVision: vision }),
+        };
+      });
+      const s = this.settingsService?.get() ?? {};
+      const cloud = [
+        ...(s.openaiKey ? CLOUD_MODELS.openai : []),
+        ...(s.anthropicKey ? CLOUD_MODELS.anthropic : []),
+      ].map((id) => ({ id, provider: 'cloud' as const, sizeBytes: 0, vision: isVisionCapable(id), installed: true, fit: 'cloud' as const }));
+      const defaults = this.settingsService?.getRedacted() ?? { defaultTextModel: undefined, defaultVisionModel: undefined };
+      return {
+        totalRamBytes: totalRam,
+        models: [...local, ...cloud],
+        defaultTextModel: defaults.defaultTextModel ?? this.routerConfig.defaultTextModel,
+        defaultVisionModel: defaults.defaultVisionModel ?? this.routerConfig.visionModel,
+      };
+    });
+
+    // Curated recommendations to pull, each with a RAM-fit badge and whether it's installed.
+    ipcMain.handle('models:catalog', async () => {
+      const totalRam = totalmem();
+      const installedNames = new Set(this.llmClient ? (await this.llmClient.listModels()) : []);
+      // Ollama lists a bare `moondream` pull as `moondream:latest`, so a catalog id
+      // without a tag must also match its `:latest` form — otherwise an installed model
+      // keeps showing "Install".
+      const isInstalled = (id: string) => installedNames.has(id) || (!id.includes(':') && installedNames.has(`${id}:latest`));
+      return MODEL_CATALOG.map((m) => ({
+        ...m,
+        installed: isInstalled(m.id),
+        fit: fitFor({ modelBytes: m.sizeBytes, totalRamBytes: totalRam, isVision: m.vision }),
+      }));
+    });
+
+    ipcMain.handle('models:delete', async (_e, name: string) => {
+      if (!this.llmClient || !name) return { ok: false, error: 'No model' };
+      try {
+        await this.llmClient.deleteModel(name);
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : 'Delete failed' };
+      }
+    });
+
+    ipcMain.handle('models:set-default', (_e, kind: 'text' | 'vision', model: string) => {
+      this.settingsService?.setDefaultModel(kind, model);
+      // Mutate the live router config so the next query routes to the new pick.
+      if (kind === 'text') this.routerConfig.defaultTextModel = model.trim() || DEFAULT_TEXT_MODEL;
+      else this.routerConfig.visionModel = model.trim() || VISION_MODEL;
+    });
+
+    ipcMain.handle('panel:search', (_event, query: string) => {
+      if (!this.notebookStore) return [];
+      try {
+        return this.notebookStore.search(query);
+      } catch {
+        return [];
+      }
+    });
+
+    // Renderer toggles interactivity as the pointer enters/leaves the island, so the
+    // transparent canvas stays click-through everywhere else.
+    ipcMain.on('panel:set-interactive', (_event, interactive: boolean) => {
+      if (this.notchPanel && !this.notchPanel.isDestroyed()) {
+        this.notchPanel.setIgnoreMouseEvents(!interactive, { forward: true });
+      }
+    });
+
+    // Collapse back to the idle island (does not hide — the island always hangs from the notch).
+    ipcMain.on('panel:close', () => {
+      if (this.notchPanel && !this.notchPanel.isDestroyed()) {
+        this.notchPanel.webContents.send('panel:collapse');
+        this.notchPanel.setIgnoreMouseEvents(true, { forward: true });
+      }
+    });
   }
 
   private registerGlobalShortcuts(): void {
-    // Translation shortcut: Cmd+Shift+T (Mac) / Ctrl+Shift+T (Windows/Linux)
-    const translationShortcut = process.platform === 'darwin' ? 'Cmd+Shift+T' : 'Ctrl+Shift+T';
-
-    globalShortcut.register(translationShortcut, () => {
-      this.handleTranslationShortcut();
-    });
-
-    // Toolbar toggle shortcut: Cmd+Shift+H (Mac) / Ctrl+Shift+H (Windows/Linux)
-    const toolbarShortcut = process.platform === 'darwin' ? 'Cmd+Shift+H' : 'Ctrl+Shift+H';
-
-    globalShortcut.register(toolbarShortcut, () => {
-      this.toggleToolbar();
-    });
-
-    console.log(`Global shortcuts registered: ${translationShortcut}, ${toolbarShortcut}`);
-  }
-
-  private async handleTranslationShortcut(): Promise<void> {
-
-    let clipboardContent = '';
-    let language = '';
-
-    try {
-      console.log('Translation shortcut triggered - checking for highlighted text...');
-
-      // Get current clipboard content
-      clipboardContent = clipboard.readText();
-
-      // If no content, show instructions to the user
-      if (!clipboardContent.trim()) {
-        console.log('No text in clipboard - showing instructions to user');
-        this.showNotification(
-          'No text found',
-          'Please highlight text in any app, copy it (Cmd+C), then press Cmd+Shift+T again'
-        );
-        return;
-      }
-
-      console.log(`Found text in clipboard: ${clipboardContent.substring(0, 100)}...`);
-
-      // Analyze the code
-      language = await this.codeAnalysisService.detectLanguage(clipboardContent);
-      console.log(`Detected language: ${language}`);
-
-      // Track explanation request
-      analyticsService.trackExplanationRequest(language, clipboardContent.length);
-
-      // Create explanation window
-      this.createExplanationWindow();
-
-      // Send data to explanation window
-      this.sendExplanationData({
-        code: clipboardContent,
-        language: language,
-        status: 'processing'
-      });
-
-      // Generate AI explanation with progress tracking
-      console.log('Starting AI explanation generation...');
-
-      const startTime = Date.now();
-
-      // Send initial progress
-      this.sendExplanationData({
-        code: clipboardContent,
-        language: language,
-        explanation: '',
-        status: 'processing',
-        progress: 0
-      });
-
-      // Add timeout wrapper to prevent hanging - increase to 2 minutes for Ollama
-      const explanation = await Promise.race([
-        this.ollamaService.generateExplanation(
-          clipboardContent,
-          language,
-          'intermediate',
-          undefined,
-          (progress: number, partialResponse: string) => {
-            // Send progress updates to the explanation window
-            this.sendExplanationData({
-              code: clipboardContent,
-              language: language,
-              explanation: partialResponse,
-              status: 'processing',
-              progress: progress
-            });
-          }
-        ),
-        new Promise<string>((_, reject) =>
-          setTimeout(() => reject(new Error('AI explanation request timed out after 2 minutes')), 120000)
-        )
-      ]);
-
-      console.log('AI explanation received, length:', explanation.length);
-
-      // Track explanation completion
-      const responseTime = Date.now() - startTime;
-      analyticsService.trackExplanationCompleted(language, clipboardContent.length, responseTime, true);
-
-      // Award points for successful explanation
-      const points = gamificationService.calculatePointsForRequest(language, clipboardContent.length);
-      await authService.addPoints(points);
-
-      // Check for achievements
-      const user = authService.getUser();
-      if (user) {
-        // Check for first request achievement
-        if (user.totalRequests === 1) {
-          const achievement = gamificationService.unlockAchievement('first_request');
-          if (achievement) {
-            this.showNotification(
-              'Achievement Unlocked! 🏆',
-              `You've unlocked: ${achievement.name} - ${achievement.description}`
-            );
-          }
-        }
-      }
-
-      // Send final explanation data
-      this.sendExplanationData({
-        code: clipboardContent,
-        language: language,
-        explanation: explanation,
-        status: 'completed',
-        progress: 100
-      });
-
-    } catch (error) {
-      console.error('Error in translation shortcut:', error);
-
-      // Send error to explanation window
-      this.sendExplanationData({
-        code: clipboardContent || '',
-        language: language || 'unknown',
-        explanation: '',
-        status: 'error',
-        error: error instanceof Error ? error.message : 'Unknown error occurred'
-      });
-
-      // Show error notification
-      this.showNotification(
-        'Error',
-        'Failed to generate explanation. Please try again.'
-      );
-    }
-  }
-
-  private sendExplanationData(data: any): void {
-    if (this.explanationWindow && !this.explanationWindow.isDestroyed()) {
-      try {
-        console.log('Sending data to explanation window:', {
-          status: data.status,
-          hasExplanation: !!data.explanation,
-          explanationLength: data.explanation?.length || 0
-        });
-
-        this.explanationWindow.webContents.send('explanation-data', data);
-        console.log('Data sent successfully to explanation window');
-      } catch (error) {
-        console.error('Failed to send data to explanation window:', error);
-      }
-    } else {
-      console.log('Cannot send data: explanation window is not available');
-    }
-  }
-
-  private toggleToolbar(): void {
-    if (this.mainWindow) {
-      if (this.isToolbarVisible) {
-        this.mainWindow.hide();
-        this.isToolbarVisible = false;
-      } else {
-        this.mainWindow.show();
-        this.isToolbarVisible = true;
-      }
-    }
-  }
-
-  private setupIpcHandlers(): void {
-    // Handle toolbar visibility toggle
-    ipcMain.handle('toggle-toolbar', () => {
-      this.toggleToolbar();
-    });
-
-    // Handle get-toolbar-visibility
-    ipcMain.handle('get-toolbar-visibility', () => {
-      return this.isToolbarVisible;
-    });
-
-    // Handle open-settings-page request from toolbar
-    ipcMain.on('open-settings-page', () => {
-      // Check if user is authenticated
-      if (false) {
-        this.showNotification(
-          'Authentication Required',
-          'Please log in first to access settings.'
-        );
-        return;
-      }
-
-      // Ensure explanation window is open
-      if (!this.explanationWindow || this.explanationWindow.isDestroyed()) {
-        this.createExplanationWindow();
-      }
-
-      // Wait a moment for the window to be ready, then send the message
-      setTimeout(() => {
-        if (this.explanationWindow && !this.explanationWindow.isDestroyed()) {
-          this.explanationWindow.webContents.send('open-settings-page');
-        }
-      }, 500);
-    });
-
-    // Handle open-notebook-in-explanation request from toolbar
-    ipcMain.on('open-notebook-in-explanation', () => {
-      // Check if user is authenticated
-      if (false) {
-        this.showNotification(
-          'Authentication Required',
-          'Please log in first to access the codebook.'
-        );
-        return;
-      }
-
-      // Ensure explanation window is open
-      if (!this.explanationWindow || this.explanationWindow.isDestroyed()) {
-        this.createExplanationWindow();
-      }
-
-      // Wait a moment for the window to be ready, then send the message
-      setTimeout(() => {
-        if (this.explanationWindow && !this.explanationWindow.isDestroyed()) {
-          this.explanationWindow.webContents.send('open-notebook-in-explanation');
-        }
-      }, 500);
-    });
-
-    // Handle save-explanation request
-    ipcMain.handle('save-explanation', async (_, data) => {
-      try {
-        // Check if user is authenticated
-        if (false) {
-          return {
-            success: false,
-            error: 'Authentication required. Please log in first.'
-          };
-        }
-
-        console.log('Saving explanation to notebook:', data);
-
-        // Check for duplicates before saving
-        if (!this.savedExplanations) {
-          this.savedExplanations = [];
-        }
-
-        // Check for duplicates
-        const isDuplicate = this.savedExplanations.some(existing =>
-          existing.code === data.code && existing.explanation === data.explanation
-        );
-
-        if (isDuplicate) {
-          console.log('Duplicate explanation detected, skipping save');
-          // Return the existing explanation
-          const existingExplanation = this.savedExplanations.find(existing =>
-            existing.code === data.code && existing.explanation === data.explanation
-          );
-          return {
-            success: true,
-            explanation: existingExplanation,
-            isDuplicate: true
-          };
-        }
-
-        // For now, we'll use a simple in-memory storage
-        // In a real app, you'd save to a database or file
-        const savedExplanation = {
-          id: Date.now().toString(), // Simple ID generation
-          ...data,
-          timestamp: data.timestamp || new Date().toISOString()
-        };
-
-        // Store in memory
-        this.savedExplanations.push(savedExplanation);
-
-        // Save to file for persistence
-        await this.saveExplanationsToFile();
-
-        console.log('Explanation saved successfully:', savedExplanation);
-
-        return {
-          success: true,
-          explanation: savedExplanation
-        };
-      } catch (error) {
-        console.error('Error saving explanation:', error);
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        };
-      }
-    });
-
-    // Handle get-all-explanations request
-    ipcMain.handle('get-all-explanations', async () => {
-      try {
-        // Check if user is authenticated
-        if (false) {
-          return {
-            success: false,
-            error: 'Authentication required. Please log in first.'
-          };
-        }
-
-        const explanations = this.savedExplanations || [];
-        console.log('Retrieved explanations:', explanations.length);
-
-        return {
-          success: true,
-          explanations
-        };
-      } catch (error) {
-        console.error('Error getting explanations:', error);
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        };
-      }
-    });
-
-    // Handle delete-explanation request
-    ipcMain.handle('delete-explanation', async (_, id: string) => {
-      try {
-        // Check if user is authenticated
-        if (false) {
-          return {
-            success: false,
-            error: 'Authentication required. Please log in first.'
-          };
-        }
-
-        const index = this.savedExplanations.findIndex(exp => exp.id === id);
-        if (index === -1) {
-          return {
-            success: false,
-            error: 'Explanation not found'
-          };
-        }
-
-        // Remove from memory
-        this.savedExplanations.splice(index, 1);
-
-        // Save to file for persistence
-        await this.saveExplanationsToFile();
-
-        console.log('Explanation deleted successfully:', id);
-
-        return {
-          success: true
-        };
-      } catch (error) {
-        console.error('Error deleting explanation:', error);
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        };
-      }
-    });
-
-    // Handle license info requests
-    ipcMain.handle('get-license-info', async () => {
-      try {
-        const licenseInfo = this.licenseService.getLicenseInfo();
-        const isFreeMode = LICENSING_CONFIG.mode === 'free';
-
-        return {
-          success: true,
-          licenseInfo,
-          isFreeMode,
-          config: LICENSING_CONFIG
-        };
-      } catch (error) {
-        console.error('Error getting license info:', error);
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        };
-      }
-    });
-
-    // Handle trial start requests
-    ipcMain.handle('start-trial', async () => {
-      try {
-        this.licenseService.startTrial();
-        console.log('Trial started successfully');
-
-        return {
-          success: true,
-          licenseInfo: this.licenseService.getLicenseInfo()
-        };
-      } catch (error) {
-        console.error('Error starting trial:', error);
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        };
-      }
-    });
-
-    // Handle translation requests
-    ipcMain.handle('translate-code', async (_, { code, detailLevel }) => {
-      // Check if user is authenticated
-      if (false) {
-        return {
-          success: false,
-          error: 'Authentication required. Please log in first.'
-        };
-      }
-
-      try {
-        console.log('Translation request received:', { codeLength: code.length, detailLevel });
-
-        // Detect language
-        const language = await this.codeAnalysisService.detectLanguage(code);
-        console.log(`Detected language: ${language}`);
-
-        // Generate explanation
-        const explanation = await this.ollamaService.generateExplanation(code, language, detailLevel);
-
-        return { success: true, explanation, language };
-      } catch (error) {
-        console.error('Translation error:', error);
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        };
-      }
-    });
-
-    // Handle website authentication opening
-    ipcMain.handle('open-auth-website', async () => {
-      try {
-        // Open the website login page in an Electron window
-        const loginUrl = WEBSITE_CONFIG.getLoginUrl();
-        console.log('Opening authentication website in Electron window:', loginUrl);
-
-        // Create a new window for the website
-        this.createWebsiteAuthWindow(loginUrl);
-        return { success: true };
-      } catch (error) {
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        };
-      }
-    });
-
-    // Handle authentication success from website
-    ipcMain.handle('auth-success', async (_, userData) => {
-      try {
-        console.log('Authentication successful:', userData);
-
-        // DON'T close the website auth window immediately - let user click continue button
-        // The window will be closed when user clicks "Return to Application"
-
-        // Update the auth service with user data
-        await authService.setUserAuthenticated(userData);
-
-        // Check for updates immediately after successful login
-        try {
-          const versionInfo = await authService.checkForUpdates();
-          const wasForceLoggedOut = authService.wasUserForceLoggedOut();
-
-          // If update is available, show download prompt
-          if (versionInfo.hasUpdate && versionInfo.updateAvailable) {
-            console.log('Update detected after login:', versionInfo.updateAvailable);
-
-            // Show update dialog with appropriate message
-            const { dialog } = require('electron');
-            const title = wasForceLoggedOut ? 'New Update Required! 🚀' : 'Update Available! 🚀';
-            const message = wasForceLoggedOut
-              ? `A new version (v${versionInfo.updateAvailable.version}) has been released and requires your attention!`
-              : `A new version (v${versionInfo.updateAvailable.version}) is available!`;
-            const detail = wasForceLoggedOut
-              ? `We've updated the app with important improvements:\n\n${versionInfo.updateAvailable.releaseNotes}\n\nPlease download the latest version to continue using all features.`
-              : `${versionInfo.updateAvailable.releaseNotes}\n\nWould you like to download the update now?`;
-
-            const result = await dialog.showMessageBox(null, {
-              type: 'info',
-              title,
-              message,
-              detail,
-              buttons: ['Download Update', 'Later'],
-              defaultId: 0,
-              cancelId: 1,
-              icon: undefined // You can add an icon path here if you have one
-            });
-
-            if (result.response === 0) {
-              // User clicked "Download Update"
-              const { shell } = require('electron');
-              shell.openExternal(versionInfo.updateAvailable.downloadUrl);
-              console.log('Opening download URL:', versionInfo.updateAvailable.downloadUrl);
-            }
-
-            // Clear the force logout flag after showing the update prompt
-            authService.clearForceLogoutFlag();
-          } else if (wasForceLoggedOut) {
-            // User was forced to log out but no app update available - just clear the flag
-            authService.clearForceLogoutFlag();
-          }
-        } catch (updateError) {
-          console.error('Failed to check for updates after login:', updateError);
-          // Don't fail the login process if update check fails
-          // Still clear the force logout flag
-          if (authService.wasUserForceLoggedOut()) {
-            authService.clearForceLogoutFlag();
-          }
-        }
-
-        // Notify the main window about authentication state change
-        if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-          this.mainWindow.webContents.send('auth-state-changed', {
-            isAuthenticated: true,
-            user: authService.getUser()
-          });
-        }
-
-        return { success: true };
-      } catch (error) {
-        console.error('Error handling auth success:', error);
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        };
-      }
-    });
-
-    // Handle user clicking "Return to Application" button
-    ipcMain.handle('continue-to-application', async () => {
-      try {
-        console.log('User clicked continue to application');
-
-        // Close the website auth window
-        if (this.websiteAuthWindow && !this.websiteAuthWindow.isDestroyed()) {
-          console.log('Closing website auth window...');
-          this.websiteAuthWindow.close();
-          this.websiteAuthWindow = null;
-          console.log('Website auth window closed successfully');
-        }
-
-        // Now that user is authenticated, trigger the main app flow
-        console.log('User authenticated, transitioning to main app...');
-
-        // Ensure main window is focused and visible
-        if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-          console.log('Focusing main window...');
-          this.mainWindow.focus();
-          this.mainWindow.show();
-        }
-
-        // Trigger the onboarding/explanation flow
-        console.log('Creating explanation window...');
-        this.checkAndShowOnboarding();
-
-        return { success: true };
-      } catch (error) {
-        console.error('Error handling continue to application:', error);
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        };
-      }
-    });
-
-    // Handle authentication state refresh
-    ipcMain.handle('auth-refresh-state', async () => {
-      try {
-        const isAuthenticated = authService.isAuthenticated();
-        const user = authService.getUser();
-
-        return {
-          success: true,
-          isAuthenticated,
-          user
-        };
-      } catch (error) {
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        };
-      }
-    });
-
-    // Handle session info requests
-    ipcMain.handle('get-session-info', async () => {
-      try {
-        const sessionInfo = authService.getSessionInfo();
-        return { success: true, sessionInfo };
-      } catch (error) {
-        console.error('Error getting session info:', error);
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        };
-      }
-    });
-
-    // Handle session extension
-    ipcMain.handle('extend-session', async () => {
-      try {
-        authService.extendSession();
-        return { success: true };
-      } catch (error) {
-        console.error('Error extending session:', error);
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        };
-      }
-    });
-
-    // Handle version check requests
-    ipcMain.handle('check-for-updates', async () => {
-      try {
-        const versionInfo = await authService.checkForUpdates();
-        return { success: true, versionInfo };
-      } catch (error) {
-        console.error('Error checking for updates:', error);
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        };
-      }
-    });
-
-    // Handle force version check (for manual refresh)
-    ipcMain.handle('force-version-check', async () => {
-      try {
-        const requiresReauth = await authService.forceVersionCheck();
-        return { success: true, requiresReauth };
-      } catch (error) {
-        console.error('Error in force version check:', error);
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        };
-      }
-    });
-
-    // Handle logout
-    ipcMain.handle('auth-logout', async () => {
-      try {
-        await authService.logout();
-
-        // Close explanation window if open
-        if (this.explanationWindow && !this.explanationWindow.isDestroyed()) {
-          this.explanationWindow.close();
-          this.explanationWindow = null;
-        }
-
-        // Notify the main window about authentication state change
-        if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-          this.mainWindow.webContents.send('auth-state-changed', {
-            isAuthenticated: false,
-            user: null
-          });
-        }
-
-        // Show logout notification
-        this.showNotification(
-          'Logged Out',
-          'You have been logged out. Please log in again to continue.'
-        );
-
-        return { success: true };
-      } catch (error) {
-        console.error('Error during logout:', error);
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        };
-      }
-    });
-
-    // Handle window control operations
-    ipcMain.handle('window-close', () => {
-      try {
-        if (this.explanationWindow && !this.explanationWindow.isDestroyed()) {
-          this.explanationWindow.close();
-          this.explanationWindow = null;
-        }
-        return { success: true };
-      } catch (error) {
-        console.error('Error closing window:', error);
-        return { success: false, error: 'Failed to close window' };
-      }
-    });
-
-    ipcMain.handle('window-minimize', () => {
-      try {
-        if (this.explanationWindow && !this.explanationWindow.isDestroyed()) {
-          this.explanationWindow.minimize();
-        }
-        return { success: true };
-      } catch (error) {
-        console.error('Error minimizing window:', error);
-        return { success: false, error: 'Failed to minimize window' };
-      }
-    });
-
-    ipcMain.handle('window-maximize', () => {
-      try {
-        if (this.explanationWindow && !this.explanationWindow.isDestroyed()) {
-          if (this.explanationWindow.isMaximized()) {
-            this.explanationWindow.unmaximize();
-          } else {
-            this.explanationWindow.maximize();
-          }
-        }
-        return { success: true };
-      } catch (error) {
-        console.error('Error maximizing window:', error);
-        return { success: false, error: 'Failed to maximize window' };
-      }
-    });
-
-    // Handle Ollama status requests
-    ipcMain.handle('get-ollama-status', () => {
-      try {
-        const status = this.ollamaProcessService.getStatus();
-        return { success: true, status };
-      } catch (error) {
-        console.error('Error getting Ollama status:', error);
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        };
-      }
-    });
-
-    // Handle manual Ollama start requests
-    ipcMain.handle('start-ollama', async () => {
-      try {
-        console.log('Manual Ollama start requested');
-        const started = await this.ollamaProcessService.startOllama();
-
-        if (started) {
-          // Try to ensure model is available
-          await this.ollamaProcessService.ensureModelAvailable('mistral:latest');
-        }
-
-        return {
-          success: started,
-          status: this.ollamaProcessService.getStatus()
-        };
-      } catch (error) {
-        console.error('Error starting Ollama manually:', error);
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        };
-      }
-    });
-  }
-
-  private startClipboardMonitoring(): void {
-    // Check clipboard every 500ms for changes
-    this.clipboardWatcher = setInterval(() => {
-      const currentContent = clipboard.readText();
-
-      // Only process if content has changed
-      if (currentContent !== this.lastClipboardContent) {
-        this.lastClipboardContent = currentContent;
-        this.updateLineCount(currentContent);
-      }
-    }, 500);
-  }
-
-  private updateLineCount(content: string): void {
-    if (!this.mainWindow || this.mainWindow.isDestroyed()) return;
-
-    const lineCount = content.trim() ? content.split('\n').length : 0;
-    const charCount = content.length;
-
-    // Send line count update to toolbar
-    this.mainWindow.webContents.send('clipboard-update', {
-      lineCount,
-      charCount,
-      hasContent: content.trim().length > 0
-    });
-  }
-
-  private stopClipboardMonitoring(): void {
-    if (this.clipboardWatcher) {
-      this.clipboardWatcher = null;
-    }
+    const notchShortcut = process.platform === 'darwin' ? 'Cmd+Shift+Space' : 'Ctrl+Shift+Space';
+    globalShortcut.register(notchShortcut, () => this.handleNotchHotkey());
+    console.log(`Global shortcut registered: ${notchShortcut}`);
   }
 
   private handleAppLifecycle(): void {
+    // Menu-bar app: keep running when the panel is hidden/closed.
     app.on('window-all-closed', () => {
-      if (process.platform !== 'darwin') {
-        app.quit();
-      }
+      // no-op on macOS; the tray keeps the app alive
+      if (process.platform !== 'darwin') app.quit();
     });
-
-    app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) {
-        this.createMainWindow();
-      }
-    });
-
+    app.on('activate', () => this.toggleNotch());
     app.on('before-quit', () => {
-      this.stopClipboardMonitoring();
-      // Stop Ollama if we started it
       this.ollamaProcessService.stopOllama();
-      // Save explanations before quitting
-      this.saveExplanationsToFile();
     });
   }
 
   private async startOllamaIfNeeded(): Promise<void> {
     try {
-      console.log('Checking if Ollama needs to be started...');
-
-      // Check if Ollama is already running
       const isRunning = await this.ollamaProcessService.checkIfRunning();
       if (isRunning) {
         console.log('Ollama is already running');
         return;
       }
-
-      // Start Ollama
       console.log('Starting Ollama...');
       const started = await this.ollamaProcessService.startOllama();
-
       if (started) {
-        console.log('Ollama started successfully');
-
-        // Ensure the Mistral model is available
-        console.log('Ensuring Mistral model is available...');
-        const modelAvailable = await this.ollamaProcessService.ensureModelAvailable('mistral:latest');
-
-        if (modelAvailable) {
-          console.log('Mistral model is ready');
-        } else {
-          console.warn('Mistral model could not be loaded, but Ollama is running');
-        }
+        await this.ollamaProcessService.ensureModelAvailable(DEFAULT_TEXT_MODEL);
       } else {
-        console.warn('Failed to start Ollama automatically. User will need to start it manually.');
+        console.warn('Failed to start Ollama automatically; user can start it manually.');
       }
     } catch (error) {
       console.error('Error during Ollama startup:', error);
-      // Don't throw - allow the app to continue even if Ollama fails to start
     }
-  }
-
-  private async loadExplanationsFromFile(): Promise<void> {
-    try {
-      if (existsSync(this.explanationsFilePath)) {
-        const data = await readFileAsync(this.explanationsFilePath, 'utf8');
-        this.savedExplanations = JSON.parse(data);
-        console.log(`Loaded ${this.savedExplanations.length} explanations from file`);
-      } else {
-        // Try to find backup files or old locations
-        await this.migrateExplanationsData();
-
-        if (existsSync(this.explanationsFilePath)) {
-          const data = await readFileAsync(this.explanationsFilePath, 'utf8');
-          this.savedExplanations = JSON.parse(data);
-          console.log(`Migrated and loaded ${this.savedExplanations.length} explanations from backup`);
-        } else {
-          this.savedExplanations = [];
-          console.log('No existing explanations file found, starting with empty list');
-        }
-      }
-    } catch (error) {
-      console.error('Error loading explanations from file:', error);
-      this.savedExplanations = [];
-    }
-  }
-
-  private async migrateExplanationsData(): Promise<void> {
-    try {
-      const userDataPath = app.getPath('userData');
-      const possiblePaths = [
-        join(userDataPath, 'explanations.json'),
-        join(userDataPath, 'saved-explanations.json'),
-        join(userDataPath, 'codebook.json'),
-        join(userDataPath, 'notebook.json')
-      ];
-
-      for (const path of possiblePaths) {
-        if (existsSync(path) && path !== this.explanationsFilePath) {
-          console.log(`Found explanations data at: ${path}`);
-          const data = await readFileAsync(path, 'utf8');
-          const explanations = JSON.parse(data);
-
-          // Save to the new location
-          await writeFileAsync(this.explanationsFilePath, JSON.stringify(explanations, null, 2), 'utf8');
-          console.log(`Migrated ${explanations.length} explanations to new location`);
-          break;
-        }
-      }
-    } catch (error) {
-      console.error('Error during data migration:', error);
-    }
-  }
-
-  private async saveExplanationsToFile(): Promise<void> {
-    try {
-      // Create backup before saving
-      if (existsSync(this.explanationsFilePath)) {
-        const backupPath = this.explanationsFilePath.replace('.json', '.backup.json');
-        await writeFileAsync(backupPath, JSON.stringify(this.savedExplanations, null, 2), 'utf8');
-      }
-
-      // Save to main file
-      await writeFileAsync(this.explanationsFilePath, JSON.stringify(this.savedExplanations, null, 2), 'utf8');
-      console.log(`Saved ${this.savedExplanations.length} explanations to file`);
-    } catch (error) {
-      console.error('Error saving explanations to file:', error);
-    }
-  }
-
-  private showNotification(title: string, message: string): void {
-    // Create a simple notification window
-    const notificationWindow = new BrowserWindow({
-      width: 400,
-      height: 120,
-      frame: false,
-      alwaysOnTop: true,
-      skipTaskbar: true,
-      show: false, // Don't show until ready to prevent white flash
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: true
-      }
-    });
-
-    notificationWindow.loadURL(`data:text/html,
-      <html>
-        <head>
-          <style>
-            body { 
-              margin: 0; 
-              padding: 20px; 
-              background: #2a2a2a; 
-              color: #ffffff; 
-              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-              border-radius: 8px;
-              display: flex;
-              flex-direction: column;
-              justify-content: center;
-              align-items: center;
-              text-align: center;
-            }
-            .title { 
-              font-weight: bold; 
-              margin-bottom: 12px; 
-              font-size: 16px;
-              color: #3b82f6;
-            }
-            .message { 
-              color: #e5e7eb; 
-              font-size: 14px;
-              line-height: 1.4;
-            }
-          </style>
-        </head>
-        <body>
-          <div class="title">${title}</div>
-          <div class="message">${message}</div>
-        </body>
-      </html>
-    `);
-
-    // Show window when ready to prevent white flash
-    notificationWindow.once('ready-to-show', () => {
-      notificationWindow.show();
-    });
-
-    // Auto-close after 3 seconds
-    setTimeout(() => {
-      if (!notificationWindow.isDestroyed()) {
-        notificationWindow.close();
-      }
-    }, 3000);
   }
 }
 
-// Create and initialize the main process
 const mainProcess = new MainProcess();
-mainProcess.initialize().catch(error => {
+mainProcess.initialize().catch((error) => {
   console.error('Failed to initialize main process:', error);
   app.quit();
 });

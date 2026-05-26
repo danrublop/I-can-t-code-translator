@@ -1,0 +1,253 @@
+/* Dynamic-Island style notch HUD for Llamas Remote.
+   Collapsed = two black widgets flanking the physical notch (dot left, waveform right),
+   always visible, fused to the top edge. Hover the top-center and the full panel drops
+   down below the notch. The HUD is intentionally DARK (it imitates the hardware notch);
+   the light Figma DESIGN.md governs the future notebook window, not this. */
+
+:root {
+  /* The notch body is SOLID BLACK so it merges with the physical hardware notch.
+     The controls floating on it (chips, buttons, preview) are translucent white —
+     Apple's "glassy" vibrant-control look on a dark HUD. All text/symbols are white. */
+  --island-bg: #000000;
+  --surface: rgba(255, 255, 255, 0.10);
+  --surface-2: rgba(255, 255, 255, 0.16);
+  --ink: #ffffff;
+  --muted: rgba(255, 255, 255, 0.72);
+  --hairline: rgba(255, 255, 255, 0.18);
+  --accent: #ffffff;            /* accents read white on the black */
+  --notch-w: 200px;             /* approx physical notch width — tune per machine */
+  --nub-h: 35px;                /* ~menu-bar height so it covers the top strip */
+  --radius: 14px;
+  --mono: 'JetBrains Mono', 'SF Mono', menlo, monospace;
+  --sans: 'Inter', -apple-system, system-ui, sans-serif;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body, #root { height: 100%; width: 100%; background: transparent; overflow: hidden; }
+body { font-family: var(--sans); color: var(--ink); -webkit-font-smoothing: antialiased; }
+
+.stage { position: relative; width: 100%; height: 100%; }
+
+/* One continuous black island fused to the very top. Collapsed it spans the notch (dot
+   on the left end, waveform on the right end) so it reads as connected to the notch;
+   expanded it grows down into the full panel. Square top (merges with the screen edge /
+   notch), rounded bottom. */
+.island {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--island-bg);
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  border-bottom-left-radius: var(--radius);
+  border-bottom-right-radius: var(--radius);
+  /* Hairline rim + soft drop shadow, like Apple's HUD / Control Center panels. */
+  box-shadow: inset 0 -0.5px 0 0 rgba(255,255,255,0.10), inset 0.5px 0 0 0 rgba(255,255,255,0.08),
+    inset -0.5px 0 0 0 rgba(255,255,255,0.08), 0 12px 40px rgba(0,0,0,0.45);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  /* collapsed: wide enough that the dot + meter sit OUTSIDE the physical notch
+     (--notch-w is the assumed notch width; the extra px is clearance each side). */
+  width: calc(var(--notch-w) + 80px);
+  height: var(--nub-h);
+  transition: width 0.28s var(--ease), height 0.28s var(--ease);
+  cursor: pointer;
+}
+.island.expanded { width: 560px; height: 258px; cursor: default; }
+/* When the model dropdown is open, let it overflow the island and float on top instead of
+   growing the notch. (Window is 540px tall, so there's room below for the menu.) */
+.island.expanded.menu-open { overflow: visible; }
+
+/* Collapsed content: dot at the left end, waveform at the right end (notch sits between). */
+.collapsed { display: flex; align-items: center; justify-content: space-between; height: 100%; padding: 0 16px; }
+.island.expanded .collapsed { display: none; }
+.c-left, .c-right { display: flex; align-items: center; }
+.dot { width: 12px; height: 12px; border-radius: 50%; background: var(--accent); }
+/* Context meter: a ring that fills with the queued selection size, percent in the center. */
+.meter { position: relative; display: inline-flex; align-items: center; justify-content: center; }
+.meter svg { display: block; }
+.meter-pct {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-family: var(--mono); font-size: 8px; color: var(--ink); line-height: 1;
+}
+.bars { display: flex; gap: 2px; align-items: flex-end; height: 12px; }
+.bars i { width: 2px; background: var(--muted); border-radius: 1px; }
+.bars i:nth-child(1) { height: 5px; }
+.bars i:nth-child(2) { height: 11px; }
+.bars i:nth-child(3) { height: 7px; }
+.bars i:nth-child(4) { height: 9px; }
+
+/* Expanded launcher: compact. Picks a model, shows selection state, fires an action;
+   the answer streams in the separate notebook window (progress + Open here). */
+.panel { display: none; flex-direction: column; height: 100%; padding: 14px 16px; gap: 12px; }
+.island.expanded .panel { display: flex; }
+.spacer { flex: 1; }
+
+.hdr { display: flex; align-items: center; gap: 10px; }
+
+/* Model picker — custom dropdown (native <select> can't render brand SVGs in options). */
+.model-picker { position: relative; }
+.model-btn {
+  display: flex; align-items: center; gap: 7px; max-width: 230px;
+  color: var(--ink); background: transparent;
+  border: none; border-radius: 999px; padding: 3px 4px 3px 3px; cursor: pointer;
+}
+.model-btn .chev { color: var(--muted); display: flex; flex: none; }
+/* model name lives in its own pill chip next to the brand logo; the hover highlight
+   lands only on the chip, not the whole button. */
+.model-chip {
+  max-width: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-size: 12px; font-weight: 500; color: var(--ink);
+  background: var(--surface-2); border: 1px solid var(--hairline);
+  border-radius: 999px; padding: 3px 9px; transition: background 0.12s;
+}
+.model-btn:hover .model-chip { background: rgba(255,255,255,0.26); }
+.model-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Floating dropdown: a real glass panel that sits ON TOP, below the chip. It escapes the
+   island's clip (see .island.menu-open) so it doesn't grow the notch, and blurs the desktop
+   showing through behind it. */
+.model-menu {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 1000;
+  min-width: 220px; max-height: 220px; overflow-y: auto;
+  background: rgba(30, 30, 32, 0.72);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 12px; padding: 5px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
+}
+.model-opt {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  font-size: 12px; color: var(--ink); background: none; border: none; border-radius: 6px;
+  padding: 6px 8px; cursor: pointer;
+}
+.model-opt:hover { background: rgba(255, 255, 255, 0.10); }
+.model-opt.on { background: rgba(255, 255, 255, 0.06); }
+.model-opt.muted { color: var(--muted); cursor: default; }
+.sel-indicator {
+  font-size: 12px; color: var(--muted); padding: 4px 10px; border-radius: 50px;
+  border: 1px solid var(--hairline);
+}
+.sel-indicator.on { color: var(--ink); border-color: var(--accent); }
+.ghost-btn {
+  display: flex; align-items: center; justify-content: center; gap: 5px;
+  font-size: 12px; color: var(--muted); background: transparent; border: none;
+  border-radius: 8px; padding: 6px; cursor: pointer; transition: background 0.12s, color 0.12s;
+}
+.ghost-btn:hover:not(:disabled) { background: var(--surface-2); color: var(--ink); }
+.ghost-btn:disabled { opacity: 0.5; cursor: default; }
+.ghost-btn.icon-only { padding: 6px; }
+
+.input-row { display: flex; align-items: center; gap: 8px; }
+.ask-input {
+  flex: 1; border: 1px solid var(--hairline); border-radius: 8px; outline: none; background: var(--surface);
+  color: var(--ink); font-family: var(--sans); font-size: 14px; padding: 8px 12px;
+}
+.ask-input::placeholder { color: var(--muted); }
+.ask-input:focus { border-color: var(--accent); }
+.icon-btn {
+  flex: none; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
+  color: var(--ink); background: var(--surface); border: 1px solid var(--hairline);
+  border-radius: 10px; cursor: pointer; transition: background 0.12s;
+}
+.icon-btn:hover:not(:disabled) { background: var(--surface-2); }
+.icon-btn:disabled { opacity: 0.45; cursor: default; }
+
+/* Action row — icon-only circular buttons. Presets on the left, attach/capture on the right. */
+.actions-row { display: flex; align-items: center; gap: 8px; }
+.preset-actions { display: flex; gap: 8px; }
+.cbtn {
+  flex: none; width: 38px; height: 38px; display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; border: 1px solid var(--hairline); background: var(--surface); color: var(--ink);
+  cursor: pointer; transition: background 0.12s, transform 0.08s;
+}
+.cbtn svg { opacity: 1; color: #fff; }
+.cbtn:hover:not(:disabled) { background: var(--surface-2); }
+.cbtn:active:not(:disabled) { transform: scale(0.93); }
+.cbtn:disabled { opacity: 0.45; cursor: default; }
+/* Ask is the primary affordance: a brighter glass circle with a white question mark. */
+.cbtn.ask { background: rgba(255,255,255,0.24); border-color: rgba(255,255,255,0.32); }
+.cbtn.ask .qm { font-size: 19px; font-weight: 700; line-height: 1; color: #fff; }
+.cbtn.ask:hover:not(:disabled) { background: rgba(255,255,255,0.34); }
+.cbtn.ask.on { box-shadow: 0 0 0 2px rgba(255,255,255,0.45); }
+
+/* Ask input row (under the buttons when ? is active). */
+.ask-row { display: flex; align-items: center; gap: 6px; }
+.ask-row .ask-input { flex: 1; }
+.ask-send {
+  flex: none; width: 38px; height: 38px; display: flex; align-items: center; justify-content: center;
+  border-radius: 10px; border: 1px solid rgba(255,255,255,0.28); background: rgba(255,255,255,0.20);
+  color: #fff; cursor: pointer; transition: background 0.12s;
+}
+.ask-send:hover:not(:disabled) { background: rgba(255,255,255,0.30); }
+.ask-send:disabled { opacity: 0.4; cursor: default; background: var(--surface); border-color: var(--hairline); color: var(--muted); }
+
+/* Preview of queued context: chips + the input box. Fills the panel below the row. */
+.preview { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+
+/* The input box holds the selection (or the empty hint) and surfaces status inside itself. */
+.box {
+  position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column;
+  border-radius: 10px; border: 1px solid var(--hairline); background: var(--surface);
+}
+.box.is-empty { border-style: dashed; background: transparent; align-items: center; justify-content: center; }
+.box.s-error { border-color: rgba(255,107,94,0.5); }
+
+/* Scrollable selected text / response */
+.sel-text {
+  flex: 1; min-height: 0; overflow-y: auto; white-space: pre-wrap; word-break: break-word;
+  font-size: 12px; line-height: 1.5; color: var(--ink); padding: 10px 12px;
+}
+/* Centered hint / status when the box is empty */
+.sel-hint { text-align: center; color: var(--muted); font-size: 12px; line-height: 1.5; padding: 12px; }
+.box.s-error .sel-hint { color: #ff6b5e; }
+
+/* Open-in-notebook button — arrow-top-right in the box's top-right corner */
+.box-open {
+  position: absolute; top: 8px; right: 8px; z-index: 1;
+  display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px;
+  font-size: 12px; font-weight: 500; color: var(--ink);
+  background: rgba(255,255,255,0.10); border: 1px solid var(--hairline);
+  border-radius: 8px; cursor: pointer; transition: background 0.12s;
+}
+.box-open:hover { background: rgba(255,255,255,0.18); }
+.box-open.icon-only { padding: 4px; }
+
+/* "Saved" — just a check symbol, pinned inside the box, neutral (not green) */
+.box-status { flex: none; padding: 8px 12px; }
+.saved {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 6px;
+  background: rgba(255,255,255,0.10); color: var(--muted);
+}
+
+/* Running: a light travels around the box border (replaces the progress bar) */
+@property --bd-angle { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
+.box.s-running::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; padding: 1.5px;
+  background: conic-gradient(from var(--bd-angle),
+    transparent 0deg, transparent 290deg, var(--accent) 335deg, #fff 360deg);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude; animation: bd-spin 1.4s linear infinite; pointer-events: none;
+}
+@keyframes bd-spin { to { --bd-angle: 360deg; } }
+
+.working { color: var(--muted); }
+
+/* Attachment chips */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; flex: none; }
+.chip {
+  display: inline-flex; align-items: center; gap: 5px; max-width: 180px;
+  padding: 4px 5px 4px 8px; border-radius: 8px; background: var(--surface-2);
+  border: 1px solid var(--hairline); font-size: 11.5px; color: var(--ink);
+}
+.chip-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chip-x {
+  flex: none; display: flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; border: none; border-radius: 5px; padding: 0;
+  background: transparent; color: var(--muted); cursor: pointer;
+}
+.chip-x:hover { background: rgba(255,255,255,0.12); color: var(--ink); }

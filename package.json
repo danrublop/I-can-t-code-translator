@@ -1,17 +1,18 @@
 {
-  "name": "i-cant-code",
-  "version": "1.1.0",
-  "description": "AI-powered code explanations using Mistral language model",
+  "name": "llamas-remote",
+  "version": "1.3.0",
+  "description": "Llamas Remote — query selected text and screenshots with local LLMs from the macOS notch; a private chat + notebook.",
   "main": "dist/main/main.js",
   "scripts": {
-    "dev": "concurrently \"npm run watch:renderer\" \"npm run build:main\" \"wait-on dist/explanation.js && electron .\"",
+    "dev": "concurrently \"npm run watch:renderer\" \"npm run build:ocr && npm run build:main\" \"wait-on dist/panel.js && electron .\"",
     "dev:renderer": "webpack serve --mode development",
-    "dev:hot": "concurrently \"npm run watch:renderer\" \"npm run build:main\" \"wait-on dist/explanation.js && electron .\"",
+    "dev:hot": "concurrently \"npm run watch:renderer\" \"npm run build:ocr && npm run build:main\" \"wait-on dist/panel.js && electron .\"",
     "watch:renderer": "webpack --mode development --watch",
     "build:renderer": "tsc -p tsconfig.renderer.json && webpack --mode development",
     "build:main": "tsc -p tsconfig.main.json",
-    "build": "npm run build:main && npm run build:renderer",
-    "build:prod": "npm run build:main && npm run build:renderer:prod",
+    "build:ocr": "swiftc -O -target arm64-apple-macos11 build-resources/ocr.swift -o build-resources/.ocr-arm64 && swiftc -O -target x86_64-apple-macos11 build-resources/ocr.swift -o build-resources/.ocr-x64 && lipo -create build-resources/.ocr-arm64 build-resources/.ocr-x64 -output build-resources/ocr && rm -f build-resources/.ocr-arm64 build-resources/.ocr-x64",
+    "build": "npm run build:ocr && npm run build:main && npm run build:renderer",
+    "build:prod": "npm run build:ocr && npm run build:main && npm run build:renderer:prod",
     "build:renderer:prod": "tsc -p tsconfig.renderer.json && webpack --config webpack.prod.config.js",
     "start": "electron .",
     "package": "npm run build:prod && electron-builder",
@@ -23,22 +24,27 @@
     "build:win": "npm run build:prod && electron-builder --win --publish=never",
     "build:linux": "npm run build:prod && electron-builder --linux --publish=never",
     "postinstall": "electron-builder install-app-deps",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "demo": "node scripts/demo.js",
     "setup": "bash scripts/setup.sh",
     "setup:win": "scripts\\setup.bat"
   },
   "keywords": [
     "electron",
-    "ai",
-    "code",
-    "explanation",
-    "mistral",
-    "ollama"
+    "local-llm",
+    "ollama",
+    "notch",
+    "menubar",
+    "notebook",
+    "vision",
+    "privacy"
   ],
-  "author": "CodeLens Translator Team",
+  "author": "Llamas Remote",
   "license": "MIT",
   "devDependencies": {
-    "@types/getos": "^3.0.4",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/dompurify": "^3.0.5",
     "@types/node": "^20.19.33",
     "@types/react": "^18.0.0",
     "@types/react-dom": "^18.0.0",
@@ -48,26 +54,35 @@
     "electron": "^28.0.0",
     "electron-builder": "^24.0.0",
     "html-webpack-plugin": "^5.5.0",
+    "jsdom": "^29.1.1",
     "style-loader": "^3.3.0",
     "ts-loader": "^9.4.0",
     "typescript": "^5.0.0",
+    "vitest": "^4.1.7",
     "wait-on": "^7.0.0",
     "webpack": "^5.88.0",
     "webpack-cli": "^5.1.0",
     "webpack-dev-server": "^5.2.2"
   },
   "dependencies": {
+    "@lobehub/icons": "^5.8.0",
+    "@tiptap/core": "^3.23.6",
+    "@tiptap/markdown": "^3.23.6",
+    "@tiptap/pm": "^3.23.6",
+    "@tiptap/react": "^3.23.6",
+    "@tiptap/starter-kit": "^3.23.6",
     "axios": "^1.13.5",
-    "electron-log": "^5.4.3",
-    "getos": "^3.2.1",
-    "keytar": "^7.9.0",
+    "better-sqlite3": "^11.10.0",
+    "dompurify": "^3.4.5",
+    "lucide-react": "^0.469.0",
+    "node-html-parser": "^7.1.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "sudo-prompt": "^9.2.1"
+    "selection-hook": "^2.0.1"
   },
   "build": {
-    "appId": "com.icantcode.app",
-    "productName": "i cant code",
+    "appId": "com.llamasremote.app",
+    "productName": "Llamas Remote",
     "directories": {
       "output": "build",
       "buildResources": "build-resources"
@@ -78,6 +93,24 @@
       "!node_modules/**/*.map",
       "!**/*.ts",
       "!src/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**",
+      "node_modules/selection-hook/**"
+    ],
+    "extraResources": [
+      {
+        "from": "build-resources/ocr",
+        "to": "ocr"
+      },
+      {
+        "from": "build-resources/trayTemplate.png",
+        "to": "trayTemplate.png"
+      },
+      {
+        "from": "build-resources/trayTemplate@2x.png",
+        "to": "trayTemplate@2x.png"
+      }
     ],
     "mac": {
       "category": "public.app-category.developer-tools",
@@ -143,7 +176,7 @@
       "createStartMenuShortcut": true
     },
     "dmg": {
-      "title": "i cant code"
+      "title": "Llamas Remote"
     }
   }
 }

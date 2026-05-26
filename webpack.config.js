@@ -4,8 +4,8 @@ const HtmlWebpackPlugin = require('html-webpack-plugin');
 module.exports = {
   mode: 'development',
   entry: {
-    toolbar: './src/renderer/toolbar.tsx',
-    explanation: './src/renderer/explanation.tsx'
+    panel: './src/renderer/panel.tsx',
+    notebook: './src/renderer/notebook.tsx'
   },
   output: {
     path: path.resolve(__dirname, 'dist'),
@@ -38,14 +38,14 @@ module.exports = {
   },
   plugins: [
     new HtmlWebpackPlugin({
-      template: './src/renderer/toolbar.html',
-      filename: 'toolbar.html',
-      chunks: ['toolbar']
+      template: './src/renderer/panel.html',
+      filename: 'panel.html',
+      chunks: ['panel']
     }),
     new HtmlWebpackPlugin({
-      template: './src/renderer/explanation.html',
-      filename: 'explanation.html',
-      chunks: ['explanation']
+      template: './src/renderer/notebook.html',
+      filename: 'notebook.html',
+      chunks: ['notebook']
     }),
   ],
   devtool: 'source-map',

@@ -14,7 +14,7 @@ import { makeEntry } from '../notebook/markdown-store';
 import type { NotebookEntry } from '../notebook/types';
 import type { CaptureResult } from '../capture/capture';
 
-/** Minimal LLM port. The real impl wraps OllamaService. */
+/** Minimal LLM port. The real impl is MultiLlmClient (Ollama + OpenAI + Anthropic). */
 export interface LlmClient {
   generate(opts: {
     model: string;

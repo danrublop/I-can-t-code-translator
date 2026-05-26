@@ -1,0 +1,78 @@
+// Round-trip tests for the on-disk entry format. The Markdown files are the notebook's
+// source of truth, so serialize→parse must be lossless for the fields and bodies we write.
+// (The SQLite index is rebuilt from these files on launch, so a parse bug = data loss.)
+
+import { describe, it, expect } from 'vitest';
+import { serializeEntry, parseEntry } from './markdown-store';
+import type { NotebookEntry } from './types';
+
+const base: NotebookEntry = {
+  id: '01J-test-id',
+  title: 'Explain — const x = 1',
+  body: 'This is the answer body.',
+  tags: ['Safari', 'typescript'],
+  model: 'llama3.2',
+  sourceApp: 'Safari',
+  sourceKind: 'text',
+  pinned: false,
+  createdAt: '2026-05-25T17:00:00.000Z',
+};
+
+const roundTrip = (e: NotebookEntry) => parseEntry(serializeEntry(e));
+
+describe('serializeEntry ↔ parseEntry round-trip', () => {
+  it('preserves every field on a basic entry', () => {
+    expect(roundTrip(base)).toEqual(base);
+  });
+
+  it('preserves a pinned entry with an image path', () => {
+    const e = { ...base, pinned: true, sourceKind: 'image' as const, imagePath: '/notebook/images/01J.png' };
+    expect(roundTrip(e)).toEqual(e);
+  });
+
+  it('round-trips values containing : and # (which trigger quoting)', () => {
+    const e = { ...base, title: 'Ratio 3:1 # of cases', sourceApp: 'App: Beta #2' };
+    const out = roundTrip(e);
+    expect(out?.title).toBe('Ratio 3:1 # of cases');
+    expect(out?.sourceApp).toBe('App: Beta #2');
+  });
+
+  it('preserves a body that contains a --- horizontal rule', () => {
+    const e = { ...base, body: 'Step 1\n\n---\n\nStep 2' };
+    expect(roundTrip(e)?.body).toBe('Step 1\n\n---\n\nStep 2');
+  });
+
+  it('preserves a body that opens with frontmatter-looking text', () => {
+    const e = { ...base, body: '---\nnot: real\n---\nactual answer' };
+    expect(roundTrip(e)?.body).toBe('---\nnot: real\n---\nactual answer');
+  });
+
+  it('preserves unicode and multi-line bodies', () => {
+    const e = { ...base, body: 'café ☕\nlínea dos\n\tindented', tags: ['Café', 'ünïcode'] };
+    const out = roundTrip(e);
+    expect(out?.body).toBe('café ☕\nlínea dos\n\tindented');
+    expect(out?.tags).toEqual(['Café', 'ünïcode']);
+  });
+
+  it('handles an empty tag list', () => {
+    expect(roundTrip({ ...base, tags: [] })?.tags).toEqual([]);
+  });
+
+  it('handles an empty body', () => {
+    expect(roundTrip({ ...base, body: '' })?.body).toBe('');
+  });
+});
+
+describe('parseEntry rejects malformed input', () => {
+  it('returns null without a frontmatter block', () => {
+    expect(parseEntry('just a body, no frontmatter')).toBeNull();
+  });
+
+  it('returns null when the frontmatter is unterminated', () => {
+    expect(parseEntry('---\nid: x\ntitle: y\nstill open')).toBeNull();
+  });
+
+  it('returns null when id is missing (file would be unaddressable)', () => {
+    expect(parseEntry('---\ntitle: y\n---\nbody')).toBeNull();
+  });
+});

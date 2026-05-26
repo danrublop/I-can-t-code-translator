@@ -118,4 +118,22 @@ describe('NotchController.runQuery', () => {
     const { controller } = setup();
     await expect(controller.runQuery({ kind: 'image', presetId: 'rewrite', imagePath: '/tmp/s.png' })).rejects.toThrow(/does not accept image/);
   });
+
+  it('persist:false streams + returns the answer but saves no entry (inline notebook generation)', async () => {
+    const { controller, saved, llm } = setup();
+    const tokens: string[] = [];
+    const res = await controller.runQuery({
+      kind: 'text',
+      presetId: 'explain',
+      persist: false,
+      capture: { text: 'const x = 1', via: 'clipboard' },
+      onToken: (d) => tokens.push(d),
+    });
+    expect(res.answer).toBe('answer for llama3.2');
+    expect(res.model).toBe('llama3.2');
+    expect(res.entry).toBeUndefined();
+    expect(saved).toHaveLength(0); // no separate note created
+    expect(tokens).toEqual(['partial']); // still streams
+    expect((llm.generate as any).mock.calls[0][0].prompt).toContain('const x = 1');
+  });
 });

@@ -75,6 +75,42 @@ const api = {
     ipcRenderer.on('notebook:error', h);
     return () => ipcRenderer.removeListener('notebook:error', h);
   },
+
+  // ---- Inline generation (the `/` command bridge) -------------------------------------
+  // The notebook initiates a query that streams INTO a block (by blockId) in the open note,
+  // instead of creating a new note. Events are tagged with the target blockId.
+
+  /** Run a slash command / freeform prompt; the answer streams via onGen* tagged with blockId. */
+  generate: (req: {
+    blockId: string;
+    commandId?: string;
+    freeText?: string;
+    selection?: string;
+    userSelectedModel?: string;
+  }): Promise<{ ok: boolean; model?: string; answer?: string; error?: string }> =>
+    ipcRenderer.invoke('notebook:generate', req),
+
+  onGenStart: (cb: (p: { blockId: string; model: string }) => void) => {
+    const h = (_e: unknown, p: { blockId: string; model: string }) => cb(p);
+    ipcRenderer.on('notebook:gen-start', h);
+    return () => ipcRenderer.removeListener('notebook:gen-start', h);
+  },
+  /** A streaming chunk (delta, not cumulative) for a specific block. */
+  onGenToken: (cb: (p: { blockId: string; delta: string }) => void) => {
+    const h = (_e: unknown, p: { blockId: string; delta: string }) => cb(p);
+    ipcRenderer.on('notebook:gen-token', h);
+    return () => ipcRenderer.removeListener('notebook:gen-token', h);
+  },
+  onGenDone: (cb: (p: { blockId: string; answer: string; model: string }) => void) => {
+    const h = (_e: unknown, p: { blockId: string; answer: string; model: string }) => cb(p);
+    ipcRenderer.on('notebook:gen-done', h);
+    return () => ipcRenderer.removeListener('notebook:gen-done', h);
+  },
+  onGenError: (cb: (p: { blockId: string; message: string }) => void) => {
+    const h = (_e: unknown, p: { blockId: string; message: string }) => cb(p);
+    ipcRenderer.on('notebook:gen-error', h);
+    return () => ipcRenderer.removeListener('notebook:gen-error', h);
+  },
 };
 
 contextBridge.exposeInMainWorld('notebookAPI', api);

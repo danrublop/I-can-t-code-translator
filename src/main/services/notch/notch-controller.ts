@@ -61,12 +61,19 @@ export interface QueryRequest {
   onToken?: (delta: string) => void;
   /** Abort the in-flight generation (query superseded / notebook window closed). */
   signal?: AbortSignal;
+  /**
+   * Whether to save the answer as a new notebook entry. Default true (the notch flow:
+   * a capture becomes its own note). The notebook's inline `/` generation sets this false
+   * — the answer streams into a block INSIDE an existing note, so no separate entry is made.
+   */
+  persist?: boolean;
 }
 
 export interface QueryResult {
   answer: string;
   model: string;
-  entry: NotebookEntry;
+  /** The saved entry, or undefined when `persist` was false (inline generation). */
+  entry?: NotebookEntry;
 }
 
 export class NotchController {
@@ -103,6 +110,11 @@ export class NotchController {
       onToken: req.onToken,
       signal: req.signal,
     });
+
+    // Inline notebook generation streams into a block inside an existing note — no new entry.
+    if (req.persist === false) {
+      return { answer, model };
+    }
 
     const entry = makeEntry({
       id: this.deps.newId(),

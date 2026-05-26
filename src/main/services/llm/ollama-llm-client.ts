@@ -25,6 +25,22 @@ export class OllamaLlmClient implements LlmClient {
     }
   }
 
+  /** Installed models with on-disk size (for the Models page RAM-fit badges). Empty on failure. */
+  async listModelsDetailed(): Promise<Array<{ name: string; sizeBytes: number }>> {
+    try {
+      const { data } = await axios.get(`${BASE_URL}/api/tags`, { timeout: 4000 });
+      const models = (data?.models ?? []) as Array<{ name: string; size?: number }>;
+      return models.filter((m) => m.name).map((m) => ({ name: m.name, sizeBytes: m.size ?? 0 }));
+    } catch {
+      return [];
+    }
+  }
+
+  /** Delete an installed model (DELETE /api/delete). Throws on failure. */
+  async deleteModel(name: string): Promise<void> {
+    await axios.delete(`${BASE_URL}/api/delete`, { data: { name }, timeout: 10000 });
+  }
+
   /** Pull a model via /api/pull, streaming progress. Resolves when complete. */
   async pullModel(name: string, onProgress?: (status: string, percent: number) => void): Promise<void> {
     const res = await axios.post(`${BASE_URL}/api/pull`, { name, stream: true }, { responseType: 'stream', timeout: 0 });
@@ -113,6 +129,14 @@ export class OllamaLlmClient implements LlmClient {
         // e.g. "model 'X' not found" or "this model does not support images".
         const detail = await readStreamErrorMessage(error.response?.data);
         const status = error.response?.status;
+        // The classic out-of-memory crash (common when a vision model loads its image
+        // encoder on a RAM-starved machine). Add an actionable hint instead of the raw text.
+        if (/runner has unexpectedly stopped|resource limitation/i.test(detail)) {
+          throw new Error(
+            'The model ran out of memory and crashed. Free up RAM, switch to a smaller model ' +
+              '(e.g. moondream for vision), or use a cloud model in Settings.',
+          );
+        }
         throw new Error(`Ollama error${status ? ` (${status})` : ''}: ${detail || error.message}`);
       }
       throw error;

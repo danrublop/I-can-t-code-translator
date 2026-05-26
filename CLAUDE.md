@@ -37,19 +37,23 @@ src/main/
   services/
     capture/                    on-demand selection capture (selection-hook AXAPI → synthetic Cmd+C fallback)
     vision/screenshot.ts        screencapture -i region grab
+    vision/ocr.ts               on-device OCR (no model) via the bundled Vision helper (build-resources/ocr.swift)
     llm/                        MultiLlmClient routes by model id → ollama | openai | anthropic
                                 (+ stream-error.ts: shared provider error-body reader)
     notch/notch-controller.ts   orchestration: build prompt → route model → stream → save
     notch/stream-session.ts     streaming lifecycle: readiness queue + request-id + AbortSignal
     router/model-router.ts      pure model-selection precedence (+ vision capability)
+    models/model-capability.ts  pure RAM-fit heuristic + curated pull catalog (Models page)
     presets/                    built-in action prompts (Debug/Translate/…)
     notebook/                   MarkdownStore (truth) + SqliteNotebookIndex (FTS5) + reconcile
-    settings/                   API keys, encrypted at rest via safeStorage
+    settings/                   API keys (encrypted) + default text/vision model picks
     ollama-process.service.ts   auto-start Ollama; detect install, link to ollama.com if absent
 src/renderer/
-  panel.tsx                     the notch HUD
-  notebook.tsx                  notebook + in-pane settings
+  panel.tsx                     the notch HUD (incl. OCR "grab text" button)
+  notebook.tsx                  notebook + in-pane settings + Models page
+  models-view.tsx               Models page: RAM-fit badges, pull/delete, default picks
   preload-panel.ts / preload-notebook.ts   narrow contextBridge IPC surfaces
+build-resources/ocr.swift       Vision-framework OCR helper, compiled by `npm run build:ocr`
 ```
 
 ## Conventions

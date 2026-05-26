@@ -82,8 +82,33 @@ export type NotebookAPI = typeof api;
 
 // Settings now lives in the notebook's right pane (no separate window), so the
 // notebook window needs the same settings bridge the standalone settings window has.
+export type ModelFit = 'comfortable' | 'tight' | 'wont-fit' | 'cloud';
+export interface DetailedModel {
+  id: string;
+  provider: 'ollama' | 'cloud';
+  sizeBytes: number;
+  vision: boolean;
+  installed: boolean;
+  fit: ModelFit;
+}
+export interface CatalogEntry {
+  id: string;
+  label: string;
+  sizeBytes: number;
+  vision: boolean;
+  note: string;
+  installed: boolean;
+  fit: ModelFit;
+}
+export interface ModelsList {
+  totalRamBytes: number;
+  models: DetailedModel[];
+  defaultTextModel: string;
+  defaultVisionModel: string;
+}
+
 const settingsApi = {
-  get: (): Promise<{ openaiKeySet: boolean; anthropicKeySet: boolean }> => ipcRenderer.invoke('settings:get'),
+  get: (): Promise<{ openaiKeySet: boolean; anthropicKeySet: boolean; defaultTextModel?: string; defaultVisionModel?: string }> => ipcRenderer.invoke('settings:get'),
   setKey: (provider: 'openai' | 'anthropic', key: string): Promise<void> => ipcRenderer.invoke('settings:set-key', provider, key),
   listModels: (): Promise<string[]> => ipcRenderer.invoke('panel:models'),
   pullModel: (name: string): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('ollama:pull', name),
@@ -92,5 +117,10 @@ const settingsApi = {
     ipcRenderer.on('settings:pull-progress', h);
     return () => ipcRenderer.removeListener('settings:pull-progress', h);
   },
+  // Models page
+  listModelsDetailed: (): Promise<ModelsList> => ipcRenderer.invoke('models:list-detailed'),
+  modelCatalog: (): Promise<CatalogEntry[]> => ipcRenderer.invoke('models:catalog'),
+  deleteModel: (name: string): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('models:delete', name),
+  setDefaultModel: (kind: 'text' | 'vision', model: string): Promise<void> => ipcRenderer.invoke('models:set-default', kind, model),
 };
 contextBridge.exposeInMainWorld('settingsAPI', settingsApi);

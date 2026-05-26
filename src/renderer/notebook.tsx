@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import DOMPurify from 'dompurify';
 import { BrandIcon } from './model-icon';
 import { SettingsView } from './settings-view';
+import { ModelsView } from './models-view';
 import './notebook.css';
 
 interface NotebookMeta { prompt: string; selection: string; sourceApp?: string; model: string }
@@ -106,7 +107,7 @@ function Notebook() {
   const [size, setSize] = useState(localStorage.getItem('nb-size') || '16');
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<NoteSummary[] | null>(null); // null = not searching
-  const [view, setView] = useState<'notes' | 'settings'>('notes'); // right pane: editor vs settings
+  const [view, setView] = useState<'notes' | 'settings' | 'models'>('notes'); // right pane: editor / settings / models
   const [image, setImage] = useState<string | null>(null); // capture data URL for the selected note
   const [words, setWords] = useState(0); // live word count of the editor
   const [fmt, setFmt] = useState({ bold: false, italic: false, underline: false, ul: false, ol: false, block: '' });
@@ -464,6 +465,15 @@ function Notebook() {
           )}
         </div>
         <div className="sidebar-footer">
+          <button className={`account-row models-row${view === 'models' ? ' active' : ''}`} onClick={() => setView('models')} title="Models — what runs on your machine">
+            <span className="avatar models-avatar">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></svg>
+            </span>
+            <span className="account-body">
+              <div className="account-name">Models</div>
+              <div className="account-sub">What runs on your Mac</div>
+            </span>
+          </button>
           <button className={`account-row${view === 'settings' ? ' active' : ''}`} onClick={() => setView('settings')} title="Open settings">
             <span className="avatar">L</span>
             <span className="account-body">
@@ -486,13 +496,13 @@ function Notebook() {
             </div>
           )}
         </div>
-        {view === 'settings' ? (
+        {view === 'settings' || view === 'models' ? (
           <div className="settings-pane">
             <button className="settings-back" onClick={() => setView('notes')} title="Back to notes">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" /></svg>
               Back to notes
             </button>
-            <SettingsView />
+            {view === 'settings' ? <SettingsView /> : <ModelsView />}
           </div>
         ) : (
         <>

@@ -4,14 +4,15 @@
   "description": "Llamas Remote — query selected text and screenshots with local LLMs from the macOS notch; a private chat + notebook.",
   "main": "dist/main/main.js",
   "scripts": {
-    "dev": "concurrently \"npm run watch:renderer\" \"npm run build:main\" \"wait-on dist/panel.js && electron .\"",
+    "dev": "concurrently \"npm run watch:renderer\" \"npm run build:ocr && npm run build:main\" \"wait-on dist/panel.js && electron .\"",
     "dev:renderer": "webpack serve --mode development",
-    "dev:hot": "concurrently \"npm run watch:renderer\" \"npm run build:main\" \"wait-on dist/panel.js && electron .\"",
+    "dev:hot": "concurrently \"npm run watch:renderer\" \"npm run build:ocr && npm run build:main\" \"wait-on dist/panel.js && electron .\"",
     "watch:renderer": "webpack --mode development --watch",
     "build:renderer": "tsc -p tsconfig.renderer.json && webpack --mode development",
     "build:main": "tsc -p tsconfig.main.json",
-    "build": "npm run build:main && npm run build:renderer",
-    "build:prod": "npm run build:main && npm run build:renderer:prod",
+    "build:ocr": "swiftc -O build-resources/ocr.swift -o build-resources/ocr",
+    "build": "npm run build:ocr && npm run build:main && npm run build:renderer",
+    "build:prod": "npm run build:ocr && npm run build:main && npm run build:renderer:prod",
     "build:renderer:prod": "tsc -p tsconfig.renderer.json && webpack --config webpack.prod.config.js",
     "start": "electron .",
     "package": "npm run build:prod && electron-builder",
@@ -91,6 +92,10 @@
       "node_modules/selection-hook/**"
     ],
     "extraResources": [
+      {
+        "from": "build-resources/ocr",
+        "to": "ocr"
+      },
       {
         "from": "build-resources/trayTemplate.png",
         "to": "trayTemplate.png"

@@ -41,6 +41,8 @@ const api = {
   runQuery: (req: PanelQueryRequest): Promise<PanelQueryResult> => ipcRenderer.invoke('panel:run-query', req),
   /** Trigger interactive region screenshot; returns the saved path or null (cancel). */
   captureScreenshot: (): Promise<string | null> => ipcRenderer.invoke('panel:screenshot'),
+  /** Grab text from a screen region via on-device OCR (no model). Returns recognized text. */
+  ocrCapture: (): Promise<{ text: string; cancelled?: boolean; error?: string }> => ipcRenderer.invoke('panel:ocr'),
   /** List installed local models for the picker. */
   listModels: (): Promise<string[]> => ipcRenderer.invoke('panel:models'),
   /** Open a native file picker; returns the chosen files' paths + display names. */

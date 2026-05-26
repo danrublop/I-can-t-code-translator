@@ -4,6 +4,7 @@ import { BrandIcon } from './model-icon';
 // Deep per-icon imports (the lucide-react barrel pulls in all ~1000 icons / ~700KB).
 import NotebookText from 'lucide-react/dist/esm/icons/notebook-text';
 import Crop from 'lucide-react/dist/esm/icons/crop';
+import ScanText from 'lucide-react/dist/esm/icons/scan-text';
 import Bug from 'lucide-react/dist/esm/icons/bug';
 import Languages from 'lucide-react/dist/esm/icons/languages';
 import PenLine from 'lucide-react/dist/esm/icons/pen-line';
@@ -30,6 +31,7 @@ interface PanelCaptured { selection: string; sourceApp?: string; empty: boolean;
 interface LlamasAPI {
   runQuery: (req: PanelQueryRequest) => Promise<PanelQueryResult>;
   captureScreenshot: () => Promise<string | null>;
+  ocrCapture: () => Promise<{ text: string; cancelled?: boolean; error?: string }>;
   listModels: () => Promise<string[]>;
   openNotebook: () => void;
   openSettings: () => void;
@@ -225,6 +227,19 @@ function Panel() {
     if (path) fire({ kind: 'image', presetId: 'explain', imagePath: path });
   }
 
+  // Grab text from a screen region via on-device OCR (no model). The recognized text
+  // becomes the queued selection, so you can then run a preset / ask a text model on it —
+  // or just open it in the notebook. No vision model, no RAM cost.
+  async function grabText() {
+    pinnedRef.current = true;
+    const res = await window.llamasAPI.ocrCapture();
+    if (res.cancelled) return;
+    if (res.error) { setError(res.error); setStatus('error'); return; }
+    const text = res.text.trim();
+    if (text) { setSelection(res.text); setSourceApp('Screen text'); setError(''); setStatus('idle'); }
+    else { setError('No text found in that region.'); setStatus('error'); }
+  }
+
   function cancelCollapse() {
     if (collapseTimer.current) { clearTimeout(collapseTimer.current); collapseTimer.current = null; }
   }
@@ -304,7 +319,8 @@ function Panel() {
             </div>
             <span className="spacer" />
             <button className="cbtn" onClick={attachFiles} disabled={busy} title="Attach files"><Paperclip size={16} /></button>
-            <button className="cbtn" onClick={screenshot} disabled={busy} title="Capture a screen region"><Crop size={16} /></button>
+            <button className="cbtn" onClick={grabText} disabled={busy} title="Grab text from a screen region (OCR — no model)"><ScanText size={16} /></button>
+            <button className="cbtn" onClick={screenshot} disabled={busy} title="Capture a screen region (ask a vision model)"><Crop size={16} /></button>
           </div>
 
           {/* Ask input — revealed when ? is tapped. */}

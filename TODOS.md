@@ -29,6 +29,25 @@ See the full plan: `~/.gstack/projects/danrublop-Code-Explainer/ceo-plans/2026-0
 
 ---
 
+## From the 2026-05-26 Notebook AI Upgrade eng review
+
+### P2 — sqlite-vec ABI spike before Phase 3 RAG
+- **What:** Time-boxed spike to confirm whether `sqlite-vec` loads under the packaged Electron
+  ABI + hardened runtime + notarization in the signed mac build. If not, commit to pure-JS cosine.
+- **Why:** Phase 3 RAG's vector-store choice rests on an unvalidated assumption; native extensions
+  are a known pain point in signed/notarized Electron apps, and finding out at impl time is costly.
+- **Context:** App already ships `better-sqlite3` via `asarUnpack` + Electron-ABI rebuild;
+  sqlite-vec is a second native surface. Pure-JS cosine over a chunks table is the safe default.
+- **Depends on:** nothing. **Blocks:** Phase 3 vector-store design. **Effort:** S/S.
+
+### P3 — first-time RAG embedding backfill UX
+- **What:** First RAG enable embeds the existing notebook (O(N) Ollama calls); needs a background
+  job + progress UI, not a blocking call.
+- **Why:** A large notebook could take minutes; a blocking call looks frozen.
+- **Context:** Re-embed-on-edit is planned; this is the one-time backfill. **Effort:** S/S.
+
+---
+
 ## From the 2026-05-26 eng review (deferred from a cleanup pass)
 
 Cleanup + dead-code removal landed; these correctness/robustness items were triaged out and

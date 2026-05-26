@@ -7,6 +7,10 @@ import { OllamaProcessService } from './services/ollama-process.service';
 import { createMacCaptureProvider, isAccessibilityTrusted } from './services/capture/mac-capture';
 import type { CaptureProvider } from './services/capture/capture';
 import { captureRegion } from './services/vision/screenshot';
+import { resolveOcrBinary, recognizeText } from './services/vision/ocr';
+import { fitFor, MODEL_CATALOG } from './services/models/model-capability';
+import { isVisionCapable } from './services/router/model-router';
+import { totalmem } from 'os';
 import { NotchController } from './services/notch/notch-controller';
 import { StreamSession } from './services/notch/stream-session';
 import { OllamaLlmClient } from './services/llm/ollama-llm-client';
@@ -49,6 +53,9 @@ class MainProcess {
   private llmClient: OllamaLlmClient | null = null;
   private settingsService: SettingsService | null = null;
   private notebookWindow: BrowserWindow | null = null;
+  // Held by reference and handed to NotchController; mutated when the user changes their
+  // default model on the Models page, so routing picks it up without rebuilding the controller.
+  private routerConfig = { defaultTextModel: DEFAULT_TEXT_MODEL, visionModel: VISION_MODEL };
 
   async initialize(): Promise<void> {
     await app.whenReady();
@@ -101,6 +108,10 @@ class MainProcess {
       this.captureProvider = createMacCaptureProvider();
       this.llmClient = new OllamaLlmClient();
       this.settingsService = new SettingsService(settingsPath(userData));
+      // Seed the router defaults from saved settings (fall back to the built-ins).
+      const s0 = this.settingsService.get();
+      this.routerConfig.defaultTextModel = s0.defaultTextModel || DEFAULT_TEXT_MODEL;
+      this.routerConfig.visionModel = s0.defaultVisionModel || VISION_MODEL;
       const llm = new MultiLlmClient({
         ollama: this.llmClient,
         openai: new OpenAiLlmClient(() => this.settingsService?.get().openaiKey),
@@ -109,7 +120,7 @@ class MainProcess {
       this.notchController = new NotchController({
         llm,
         notebook: this.notebookStore,
-        routerConfig: { defaultTextModel: DEFAULT_TEXT_MODEL, visionModel: VISION_MODEL },
+        routerConfig: this.routerConfig,
         presets: BUILT_IN_PRESETS,
         newId: () => randomUUID(),
         now: () => new Date().toISOString(),
@@ -404,7 +415,7 @@ class MainProcess {
       const { runId, signal } = session.beginRun();
       const preset = req.presetId ? BUILT_IN_PRESETS.find((p) => p.id === req.presetId) : undefined;
       const label = preset?.name ?? (req.freeText?.trim() || 'Ask');
-      const displayModel = req.userSelectedModel || (req.kind === 'image' ? VISION_MODEL : DEFAULT_TEXT_MODEL);
+      const displayModel = req.userSelectedModel || (req.kind === 'image' ? this.routerConfig.visionModel : this.routerConfig.defaultTextModel);
       session.emit(runId, 'notebook:start', { prompt: label, selection: req.selection ?? '', sourceApp: req.sourceApp, model: displayModel });
 
       try {
@@ -545,6 +556,86 @@ class MainProcess {
           this.notchPanel.focus();
         }
       }
+    });
+
+    // Grab text from a screen region with NO model: screencapture -i, then on-device
+    // Vision OCR. Sidesteps vision-model RAM cost entirely. Returns recognized text.
+    ipcMain.handle('panel:ocr', async () => {
+      this.screenshotInFlight = true;
+      let shot: string | null = null;
+      try {
+        const { path } = await captureRegion();
+        shot = path;
+        if (!shot) return { text: '', cancelled: true };
+        const bin = resolveOcrBinary({ isPackaged: app.isPackaged, resourcesPath: process.resourcesPath, appPath: app.getAppPath() });
+        const text = await recognizeText(bin, shot);
+        return { text };
+      } catch (e) {
+        console.error('OCR failed:', e);
+        return { text: '', error: e instanceof Error ? e.message : 'OCR failed' };
+      } finally {
+        this.screenshotInFlight = false;
+        if (shot && existsSync(shot)) { try { rmSync(shot); } catch { /* ignore */ } }
+        if (this.notchPanel && !this.notchPanel.isDestroyed()) { this.notchPanel.show(); this.notchPanel.focus(); }
+      }
+    });
+
+    // Models page: installed models with size + RAM-fit badge + vision flag, plus cloud
+    // models when a key is set. "fit" is a capacity estimate (see model-capability.ts).
+    ipcMain.handle('models:list-detailed', async () => {
+      const totalRam = totalmem();
+      const installed = this.llmClient ? await this.llmClient.listModelsDetailed() : [];
+      const local = installed.map((m) => {
+        const vision = isVisionCapable(m.name);
+        return {
+          id: m.name,
+          provider: 'ollama' as const,
+          sizeBytes: m.sizeBytes,
+          vision,
+          installed: true,
+          fit: fitFor({ modelBytes: m.sizeBytes, totalRamBytes: totalRam, isVision: vision }),
+        };
+      });
+      const s = this.settingsService?.get() ?? {};
+      const cloud = [
+        ...(s.openaiKey ? CLOUD_MODELS.openai : []),
+        ...(s.anthropicKey ? CLOUD_MODELS.anthropic : []),
+      ].map((id) => ({ id, provider: 'cloud' as const, sizeBytes: 0, vision: isVisionCapable(id), installed: true, fit: 'cloud' as const }));
+      const defaults = this.settingsService?.getRedacted() ?? { defaultTextModel: undefined, defaultVisionModel: undefined };
+      return {
+        totalRamBytes: totalRam,
+        models: [...local, ...cloud],
+        defaultTextModel: defaults.defaultTextModel ?? this.routerConfig.defaultTextModel,
+        defaultVisionModel: defaults.defaultVisionModel ?? this.routerConfig.visionModel,
+      };
+    });
+
+    // Curated recommendations to pull, each with a RAM-fit badge and whether it's installed.
+    ipcMain.handle('models:catalog', async () => {
+      const totalRam = totalmem();
+      const installedNames = new Set(this.llmClient ? (await this.llmClient.listModels()) : []);
+      return MODEL_CATALOG.map((m) => ({
+        ...m,
+        installed: installedNames.has(m.id),
+        fit: fitFor({ modelBytes: m.sizeBytes, totalRamBytes: totalRam, isVision: m.vision }),
+      }));
+    });
+
+    ipcMain.handle('models:delete', async (_e, name: string) => {
+      if (!this.llmClient || !name) return { ok: false, error: 'No model' };
+      try {
+        await this.llmClient.deleteModel(name);
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : 'Delete failed' };
+      }
+    });
+
+    ipcMain.handle('models:set-default', (_e, kind: 'text' | 'vision', model: string) => {
+      this.settingsService?.setDefaultModel(kind, model);
+      // Mutate the live router config so the next query routes to the new pick.
+      if (kind === 'text') this.routerConfig.defaultTextModel = model.trim() || DEFAULT_TEXT_MODEL;
+      else this.routerConfig.visionModel = model.trim() || VISION_MODEL;
     });
 
     ipcMain.handle('panel:search', (_event, query: string) => {

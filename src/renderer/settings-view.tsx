@@ -1,12 +1,41 @@
 import React, { useEffect, useState } from 'react';
 import './settings.css';
 
+export type ModelFit = 'comfortable' | 'tight' | 'wont-fit' | 'cloud';
+export interface DetailedModel {
+  id: string;
+  provider: 'ollama' | 'cloud';
+  sizeBytes: number;
+  vision: boolean;
+  installed: boolean;
+  fit: ModelFit;
+}
+export interface CatalogEntry {
+  id: string;
+  label: string;
+  sizeBytes: number;
+  vision: boolean;
+  note: string;
+  installed: boolean;
+  fit: ModelFit;
+}
+export interface ModelsList {
+  totalRamBytes: number;
+  models: DetailedModel[];
+  defaultTextModel: string;
+  defaultVisionModel: string;
+}
+
 interface SettingsAPI {
-  get: () => Promise<{ openaiKeySet: boolean; anthropicKeySet: boolean }>;
+  get: () => Promise<{ openaiKeySet: boolean; anthropicKeySet: boolean; defaultTextModel?: string; defaultVisionModel?: string }>;
   setKey: (provider: 'openai' | 'anthropic', key: string) => Promise<void>;
   listModels: () => Promise<string[]>;
   pullModel: (name: string) => Promise<{ ok: boolean; error?: string }>;
   onPullProgress: (cb: (p: { name: string; status: string; percent: number }) => void) => () => void;
+  listModelsDetailed: () => Promise<ModelsList>;
+  modelCatalog: () => Promise<CatalogEntry[]>;
+  deleteModel: (name: string) => Promise<{ ok: boolean; error?: string }>;
+  setDefaultModel: (kind: 'text' | 'vision', model: string) => Promise<void>;
 }
 declare global { interface Window { settingsAPI: SettingsAPI } }
 

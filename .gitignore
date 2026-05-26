@@ -127,3 +127,6 @@ website/
 
 # Claude Code / loop runtime artifacts
 .claude/
+
+# Compiled OCR helper (built from build-resources/ocr.swift via npm run build:ocr)
+build-resources/ocr

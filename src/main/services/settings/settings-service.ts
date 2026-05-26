@@ -12,6 +12,10 @@ import { safeStorage } from 'electron';
 export interface AppSettings {
   openaiKey?: string;
   anthropicKey?: string;
+  /** User-chosen default model for text queries (overrides the built-in default). */
+  defaultTextModel?: string;
+  /** User-chosen default model for image/vision queries (overrides the built-in default). */
+  defaultVisionModel?: string;
 }
 
 export class SettingsService {
@@ -21,7 +25,12 @@ export class SettingsService {
     try {
       if (existsSync(file)) {
         const raw = JSON.parse(readFileSync(file, 'utf8')) as AppSettings;
-        this.settings = { openaiKey: decrypt(raw.openaiKey), anthropicKey: decrypt(raw.anthropicKey) };
+        this.settings = {
+          openaiKey: decrypt(raw.openaiKey),
+          anthropicKey: decrypt(raw.anthropicKey),
+          defaultTextModel: raw.defaultTextModel,
+          defaultVisionModel: raw.defaultVisionModel,
+        };
         // Migrate any legacy plaintext keys to encrypted at rest, once.
         const hasLegacyPlaintext = [raw.openaiKey, raw.anthropicKey].some((v) => v && !v.startsWith('enc:'));
         if (hasLegacyPlaintext) this.save();
@@ -35,11 +44,13 @@ export class SettingsService {
     return { ...this.settings };
   }
 
-  /** Returns a redacted view (keys -> boolean "set") for the renderer. */
-  getRedacted(): { openaiKeySet: boolean; anthropicKeySet: boolean } {
+  /** Returns a redacted view (keys -> boolean "set") plus default model picks for the renderer. */
+  getRedacted(): { openaiKeySet: boolean; anthropicKeySet: boolean; defaultTextModel?: string; defaultVisionModel?: string } {
     return {
       openaiKeySet: !!this.settings.openaiKey,
       anthropicKeySet: !!this.settings.anthropicKey,
+      defaultTextModel: this.settings.defaultTextModel,
+      defaultVisionModel: this.settings.defaultVisionModel,
     };
   }
 
@@ -50,11 +61,24 @@ export class SettingsService {
     this.save();
   }
 
+  /** Persist a default model pick. Empty string clears it (back to the built-in default). */
+  setDefaultModel(kind: 'text' | 'vision', model: string): void {
+    const trimmed = model.trim() || undefined;
+    if (kind === 'text') this.settings.defaultTextModel = trimmed;
+    else this.settings.defaultVisionModel = trimmed;
+    this.save();
+  }
+
   private save(): void {
     try {
       if (!existsSync(dirname(this.file))) mkdirSync(dirname(this.file), { recursive: true });
-      // Encrypt keys before writing to disk.
-      const onDisk: AppSettings = { openaiKey: encrypt(this.settings.openaiKey), anthropicKey: encrypt(this.settings.anthropicKey) };
+      // Encrypt keys before writing; model picks are not secrets, stored plaintext.
+      const onDisk: AppSettings = {
+        openaiKey: encrypt(this.settings.openaiKey),
+        anthropicKey: encrypt(this.settings.anthropicKey),
+        defaultTextModel: this.settings.defaultTextModel,
+        defaultVisionModel: this.settings.defaultVisionModel,
+      };
       writeFileSync(this.file, JSON.stringify(onDisk, null, 2), 'utf8');
     } catch (e) {
       console.error('Failed to save settings:', e);

@@ -22,16 +22,34 @@ export interface CaptureResult {
   via: 'accessibility' | 'clipboard' | 'none';
 }
 
-export interface CaptureProvider {
-  /** Read the current selection on demand. Resolves with empty text if none. */
-  captureSelection(): Promise<CaptureResult>;
+export interface CaptureOptions {
+  /**
+   * Whether the synthetic-Cmd+C clipboard fallback may run if the accessibility read
+   * yields nothing. Passive triggers (hover) pass `false` so we never inject a keystroke
+   * or thrash the clipboard just because the panel opened; explicit triggers (hotkey,
+   * action button) pass `true`. Defaults to `true`.
+   */
+  allowClipboardFallback?: boolean;
 }
 
-/** Minimal clipboard surface (Electron's `clipboard` satisfies this). */
+export interface CaptureProvider {
+  /** Read the current selection on demand. Resolves with empty text if none. */
+  captureSelection(opts?: CaptureOptions): Promise<CaptureResult>;
+}
+
+/**
+ * Minimal clipboard surface (Electron's `clipboard` satisfies the required methods).
+ * `snapshot`/`restore` are optional: when provided they preserve ALL clipboard formats
+ * (image/RTF/HTML), not just text. Tests inject the text-only subset.
+ */
 export interface Clipboard {
   readText(): string;
   writeText(text: string): void;
   clear(): void;
+  /** Capture every clipboard format so a non-text clipboard isn't lost on capture. */
+  snapshot?(): unknown;
+  /** Put a snapshot back exactly as it was. */
+  restore?(snap: unknown): void;
 }
 
 export interface ClipboardCaptureOptions {
@@ -61,12 +79,11 @@ export async function captureViaClipboard(
   const sleep = options.sleep ?? defaultSleep;
   const delay = options.captureDelayMs ?? 150;
 
-  // Save the user's clipboard so we can put it back no matter what happens.
-  // NOTE: only the TEXT representation is snapshotted/restored. If the user had a
-  // non-text clipboard (image/file/RTF), this fallback path loses it. Acceptable for now
-  // since this only runs when the accessibility read fails; revisit with full-format
-  // snapshot/restore if it becomes a real annoyance.
-  const saved = clipboard.readText();
+  // Save the user's clipboard so we can put it back no matter what happens. Prefer the
+  // full-format snapshot (preserves an image/RTF/HTML clipboard); fall back to text-only
+  // when the injected clipboard doesn't support it (unit tests).
+  const useFullSnapshot = typeof clipboard.snapshot === 'function' && typeof clipboard.restore === 'function';
+  const saved: unknown = useFullSnapshot ? clipboard.snapshot!() : clipboard.readText();
   try {
     // Clear first so a stale value isn't mistaken for the selection.
     clipboard.clear();
@@ -80,7 +97,8 @@ export async function captureViaClipboard(
     return { text: captured, sourceApp, via: 'clipboard' };
   } finally {
     // Restore the original clipboard. This runs on success, empty, and error paths.
-    clipboard.writeText(saved);
+    if (useFullSnapshot) clipboard.restore!(saved);
+    else clipboard.writeText(saved as string);
   }
 }
 
@@ -97,7 +115,7 @@ export function makeHybridProvider(deps: {
   options?: ClipboardCaptureOptions;
 }): CaptureProvider {
   return {
-    async captureSelection(): Promise<CaptureResult> {
+    async captureSelection(opts: CaptureOptions = {}): Promise<CaptureResult> {
       const sourceApp = deps.getSourceApp?.();
       try {
         const ax = await deps.readAccessibilitySelection();
@@ -105,7 +123,12 @@ export function makeHybridProvider(deps: {
           return { ...ax, sourceApp: ax.sourceApp ?? sourceApp, via: 'accessibility' };
         }
       } catch {
-        // Accessibility unavailable or denied — fall through to clipboard.
+        // Accessibility unavailable or denied — fall through to clipboard (if allowed).
+      }
+      // Passive triggers (hover) skip the synthetic Cmd+C so we never inject a keystroke
+      // or disturb the clipboard just because the panel opened.
+      if (opts.allowClipboardFallback === false) {
+        return { text: '', sourceApp, via: 'none' };
       }
       return captureViaClipboard(deps.clipboard, deps.triggerCopy, sourceApp, deps.options);
     },

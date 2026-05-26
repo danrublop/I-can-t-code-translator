@@ -1,7 +1,17 @@
 import { spawn, ChildProcess } from 'child_process';
 import { platform } from 'os';
 import { existsSync } from 'fs';
+import { shell } from 'electron';
 import axios from 'axios';
+
+// Known macOS Ollama binary locations: Homebrew (Intel + Apple Silicon) and the
+// Ollama.app bundle (what ollama.com's macOS download installs).
+const MAC_OLLAMA_PATHS = [
+  '/usr/local/bin/ollama',
+  '/opt/homebrew/bin/ollama',
+  '/Applications/Ollama.app/Contents/Resources/ollama',
+];
+const OLLAMA_DOWNLOAD_URL = 'https://ollama.com/download';
 
 export interface OllamaProcessStatus {
   isRunning: boolean;
@@ -61,19 +71,15 @@ export class OllamaProcessService {
       console.log('Starting Ollama...');
 
       // Determine the command based on platform
-      let command = this.getOllamaCommand();
+      const command = this.getOllamaCommand();
 
-      // Ensure Ollama is installed
+      // We don't auto-install: piping a network script into a root shell from a signed,
+      // hardened-runtime app is a supply-chain risk, and the macOS download is an .app/dmg
+      // (not the Linux install.sh). If it's missing, point the user at the official download.
       if (!this.isOllamaInstalled()) {
-        console.log('Ollama is not installed. Attempting to install...');
-        const installed = await this.installOllama();
-        if (!installed) {
-          throw new Error('Ollama installation failed or user denied prompt');
-        }
-        command = this.getOllamaCommand(); // Refresh command logic after potential install
-        if (!this.isOllamaInstalled()) {
-          throw new Error('Ollama was seemingly installed but is still not available locally.');
-        }
+        console.warn('Ollama is not installed. Opening the download page.');
+        try { await shell.openExternal(OLLAMA_DOWNLOAD_URL); } catch { /* best effort */ }
+        throw new Error(`Ollama isn't installed. Get it at ${OLLAMA_DOWNLOAD_URL}, then reopen the app.`);
       }
 
       // Spawn the Ollama process
@@ -107,90 +113,21 @@ export class OllamaProcessService {
     }
   }
 
+  // Resolve the ollama binary path. macOS app is the only packaged target; on other
+  // platforms we fall back to whatever is on PATH.
   private getOllamaCommand(): string {
-    const os = platform();
-
-    // Try to find Ollama in common locations
-    switch (os) {
-      case 'darwin': // macOS
-        // Try common installation paths for macOS
-        const macPaths = ['/usr/local/bin/ollama', '/opt/homebrew/bin/ollama'];
-        for (const path of macPaths) {
-          if (existsSync(path)) {
-            return path;
-          }
-        }
-        return 'ollama'; // Fallback to PATH
-      case 'linux':
-        const linuxPaths = ['/usr/local/bin/ollama', '/usr/bin/ollama'];
-        for (const path of linuxPaths) {
-          if (existsSync(path)) {
-            return path;
-          }
-        }
-        return 'ollama'; // Fallback to PATH
-        return 'ollama.exe';
-      default:
-        return 'ollama';
+    if (platform() === 'darwin') {
+      return MAC_OLLAMA_PATHS.find((p) => existsSync(p)) ?? 'ollama';
     }
+    return 'ollama'; // PATH fallback (dev on other platforms)
   }
 
   private isOllamaInstalled(): boolean {
-    const os = platform();
-
-    switch (os) {
-      case 'darwin': // macOS
-        const macPaths = ['/usr/local/bin/ollama', '/opt/homebrew/bin/ollama'];
-        return macPaths.some(path => existsSync(path));
-      case 'linux':
-        const linuxPaths = ['/usr/local/bin/ollama', '/usr/bin/ollama'];
-        return linuxPaths.some(path => existsSync(path));
-      case 'win32': // Windows
-        // Checking for purely global PATH installation might necessitate a shell call,
-        // but for now we fallback to checking standard Windows installation paths if they exist
-        // or assuming it's uninstalled if we're uncertain
-        const winPath = 'C:\\Users\\' + process.env.USERNAME + '\\AppData\\Local\\Programs\\Ollama\\ollama.exe';
-        return existsSync(winPath);
-      default:
-        return false;
+    if (platform() === 'darwin') {
+      return MAC_OLLAMA_PATHS.some((p) => existsSync(p));
     }
-  }
-
-  private async installOllama(): Promise<boolean> {
-    return new Promise((resolve) => {
-      const os = platform();
-      let cmd = '';
-
-      if (os === 'darwin') {
-        cmd = 'curl -fsSL https://ollama.com/install.sh | sh';
-      } else if (os === 'linux') {
-        cmd = 'curl -fsSL https://ollama.com/install.sh | sh';
-      } else if (os === 'win32') {
-        // Requires downloading the exe and running it. Not fully automated via single line usually.
-        console.warn('Auto-install on Windows is not straightforward. Please install from ollama.com');
-        return resolve(false);
-      } else {
-        return resolve(false);
-      }
-
-      console.log('Running installation command:', cmd);
-      const sudo = require('sudo-prompt');
-      const options = {
-        name: 'Llamas Remote',
-      };
-
-      sudo.exec(cmd, options, (error: any, stdout: any, stderr: any) => {
-        if (error) {
-          console.error('Ollama installation failed:', error);
-          resolve(false);
-          return;
-        }
-        console.log('Ollama installation stdout:', stdout);
-        console.error('Ollama installation stderr:', stderr);
-
-        resolve(this.isOllamaInstalled());
-      });
-    });
+    // Non-macOS (dev only): trust PATH; checkIfRunning() is the real readiness gate.
+    return true;
   }
 
   private setupProcessHandlers(): void {

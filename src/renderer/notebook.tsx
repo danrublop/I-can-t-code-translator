@@ -19,10 +19,11 @@ interface NotebookAPI {
   hide: (id: string) => Promise<void>;
   restore: (id: string) => Promise<void>;
   remove: (id: string) => Promise<void>;
+  signalReady: () => void;
   onShowSettings: (cb: () => void) => () => void;
   onSaved: (cb: (id: string) => void) => () => void;
   onStart: (cb: (meta: NotebookMeta) => void) => () => void;
-  onToken: (cb: (partial: string) => void) => () => void;
+  onToken: (cb: (delta: string) => void) => () => void;
   onDone: (cb: (answer: string) => void) => () => void;
   onError: (cb: (message: string) => void) => () => void;
 }
@@ -137,6 +138,12 @@ function Notebook() {
 
   // Plain text into the editor (used while streaming).
   const setEditor = (text: string) => { if (editorRef.current) editorRef.current.textContent = text; recountWords(); };
+  // Append a streamed delta chunk without re-writing the whole buffer (O(1) per token).
+  const appendEditor = (delta: string) => {
+    if (!editorRef.current) return;
+    editorRef.current.appendChild(document.createTextNode(delta));
+    recountWords();
+  };
   // Render a stored body as sanitized HTML so rich formatting (bold/italic/headings)
   // persists. DOMPurify guards against injected markup from captured text / model output;
   // we use a DocumentFragment + replaceChildren rather than innerHTML.
@@ -183,7 +190,9 @@ function Notebook() {
       setEditor('');
       setImage(null);
     });
-    const offToken = window.notebookAPI.onToken((p) => { if (streamingRef.current) setEditor(p); });
+    // onToken now carries the new chunk (delta), not the cumulative answer — append it.
+    const offToken = window.notebookAPI.onToken((p) => { if (streamingRef.current) appendEditor(p); });
+    // onDone carries the full answer; replace the accumulated deltas (corrects any dropped chunk).
     const offDone = window.notebookAPI.onDone((a) => { if (streamingRef.current) setEditor(a); });
     const offErr = window.notebookAPI.onError((msg) => { streamingRef.current = false; setStreaming('error'); setStreamErr(msg); });
     const offSaved = window.notebookAPI.onSaved(async (id) => {
@@ -193,6 +202,8 @@ function Notebook() {
       selectNote(id, list);
     });
     const offSettings = window.notebookAPI.onShowSettings(() => setView('settings'));
+    // Listeners are attached — tell main to flush any answer buffered while we loaded.
+    window.notebookAPI.signalReady();
     return () => { offStart(); offToken(); offDone(); offErr(); offSaved(); offSettings(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

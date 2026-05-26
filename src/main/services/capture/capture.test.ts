@@ -118,4 +118,58 @@ describe('makeHybridProvider', () => {
     expect(res.via).toBe('clipboard');
     expect(cb.value).toBe('orig');
   });
+
+  it('passive mode (allowClipboardFallback:false) never injects a synthetic copy', async () => {
+    const cb = fakeClipboard('orig');
+    const triggerCopy = vi.fn(async () => cb.writeText('SHOULD NOT HAPPEN'));
+    const provider = makeHybridProvider({
+      readAccessibilitySelection: async () => ({ text: '', via: 'none' }), // AX found nothing
+      clipboard: cb,
+      triggerCopy,
+      getSourceApp: () => 'Safari',
+      options: noSleep,
+    });
+
+    const res = await provider.captureSelection({ allowClipboardFallback: false });
+    expect(res.text).toBe('');
+    expect(res.via).toBe('none');
+    expect(res.sourceApp).toBe('Safari');
+    expect(triggerCopy).not.toHaveBeenCalled();
+    expect(cb.value).toBe('orig');
+  });
+
+  it('passive mode still returns an accessibility hit (hover preview works)', async () => {
+    const cb = fakeClipboard('orig');
+    const provider = makeHybridProvider({
+      readAccessibilitySelection: async (): Promise<CaptureResult> => ({ text: 'hovered selection', via: 'accessibility' }),
+      clipboard: cb,
+      triggerCopy: vi.fn(),
+      options: noSleep,
+    });
+
+    const res = await provider.captureSelection({ allowClipboardFallback: false });
+    expect(res.text).toBe('hovered selection');
+    expect(res.via).toBe('accessibility');
+  });
+});
+
+describe('captureViaClipboard — full-format snapshot/restore', () => {
+  // Simulates a clipboard holding a non-text payload (e.g. an image): readText is empty
+  // but snapshot/restore round-trips the real contents.
+  it('restores all formats, not just text', async () => {
+    let store: Record<string, unknown> = { text: '', image: 'PNGDATA' };
+    const cb: Clipboard = {
+      readText: () => (store.text as string) ?? '',
+      writeText: (t) => { store = { text: t }; },
+      clear: () => { store = { text: '' }; },
+      snapshot: () => ({ ...store }),
+      restore: (snap) => { store = { ...(snap as Record<string, unknown>) }; },
+    };
+    const triggerCopy = async () => { store = { text: 'selected text' }; };
+
+    const res = await captureViaClipboard(cb, triggerCopy, undefined, noSleep);
+    expect(res.text).toBe('selected text');
+    // The original image clipboard is back, not clobbered by text-only restore.
+    expect(store).toEqual({ text: '', image: 'PNGDATA' });
+  });
 });

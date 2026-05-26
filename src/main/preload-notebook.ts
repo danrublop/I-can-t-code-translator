@@ -21,6 +21,9 @@ export interface NoteSummary {
 }
 
 const api = {
+  // Handshake: tell main the notebook view has mounted and is listening, so it can flush
+  // any answer that started streaming before the window finished loading.
+  signalReady: () => ipcRenderer.send('notebook:ready'),
   // Notes-app operations
   openSettings: () => ipcRenderer.send('open-settings'),
   list: (): Promise<NoteSummary[]> => ipcRenderer.invoke('notebook:list'),

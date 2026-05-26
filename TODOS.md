@@ -34,52 +34,49 @@ See the full plan: `~/.gstack/projects/danrublop-Code-Explainer/ceo-plans/2026-0
 Cleanup + dead-code removal landed; these correctness/robustness items were triaged out and
 captured here so they aren't lost. Roughly priority-ordered.
 
-### P1 — Cross-platform Ollama start/install is broken
-- **What:** `ollama-process.service.ts` `getOllamaCommand()` has dead code (`return 'ollama.exe'` after a `return`) and **no `win32` branch**, so Windows resolves to `'ollama'`. `installOllama()` pipes `curl … install.sh | sh` via `sudo-prompt` for **both** macOS and Linux, but that script is the Linux installer (macOS ships a `.app`/dmg).
-- **Why:** Auto-start fails on Windows; macOS auto-install can't work; piping a network script into a root shell is a supply-chain smell in a signed, hardened-runtime app.
-- **How to start:** Add a real `win32` case; on macOS detect the Ollama.app / `brew` instead of `curl|sh`; or simplest — drop auto-install and link users to ollama.com on failure. Keep `sudo-prompt` only if a real install path needs it.
-- **Effort:** M (human) → S (CC).
+> **2026-05-26 follow-up eng review + implementation:** the notch/capture deep-dive
+> landed fixes for the items struck through below. Remaining open items are at the bottom.
 
-### P1 — First-query streaming is invisible
-- **What:** `main.ts` `panel:run-query` calls `createNotebookWindow()` then immediately `sendNotebook('notebook:start'/'token')`. On the first query the renderer hasn't finished loading, so those events drop; only `done`/`saved` land seconds later. `showSettings()` already waits for `did-finish-load` — `run-query` should too.
-- **Why:** First answer after launch appears to hang, then pops in fully formed — looks broken.
-- **How to start:** Gate the first `notebook:start`/token send on `webContents.once('did-finish-load')` when the window was freshly created (mirror `showSettings`).
-- **Effort:** S (human) → S (CC).
+### ✅ DONE — Cross-platform Ollama start/install (was P1)
+Dropped the `curl … install.sh | sh` `sudo-prompt` auto-install (supply-chain risk + wrong
+installer for macOS). `ollama-process.service.ts` now detects the Ollama.app / Homebrew
+binary and opens `ollama.com/download` when absent. Dead `ollama.exe` branch removed;
+`sudo-prompt` dependency removed. Scoped to macOS (the only packaged target).
 
-### P2 — No cancellation for in-flight LLM streams
-- **What:** None of the three LLM clients accept an `AbortSignal`. Closing the panel or starting a new query leaves the old axios stream running and still firing `onToken`.
-- **Why:** A 5-minute local generation can't be stopped; stale tokens can bleed into the wrong note (see next item).
-- **How to start:** Thread an `AbortSignal` through `LlmClient.generate` and pass `signal` to axios; abort on panel close / new query. Pairs with extracting the shared stream parser (below).
-- **Effort:** M (human) → S (CC).
+### ✅ DONE — First-query streaming is invisible (was P1)
+Replaced the fire-immediately sends with a `StreamSession` readiness queue: the notebook
+renderer emits `notebook:ready` on mount and main buffers `notebook:*` events until then,
+flushing on ready (and re-buffering on reload). Unit-tested in `stream-session.test.ts`.
 
-### P2 — Concurrent queries race into one notebook window
-- **What:** The `notebook:*` IPC channel carries no request id. Firing query B while A streams: B's `notebook:start` resets the editor, but A's late `token`/`done` still arrive and overwrite.
-- **Why:** Interleaved/overwritten answers; the saved note can mismatch its title/metadata.
-- **How to start:** Tag each run with an id; the renderer ignores tokens whose id isn't the active one. Cancellation (above) reduces the window further.
-- **Effort:** M (human) → S (CC).
+### ✅ DONE — No cancellation for in-flight LLM streams (was P2)
+`LlmClient.generate` now takes an `AbortSignal`, threaded to axios in all three clients;
+`StreamSession.beginRun()` aborts the prior run, and closing the notebook window aborts the
+active run. Cancels surface as a benign `'cancelled'` (no error flash). Note: collapsing the
+*panel* does NOT cancel — the answer streams into the separate notebook window.
 
-### P2 — Capture honesty: accessibility path is a stub
-- **What:** `mac-capture.ts` `readAccessibilitySelection()` always returns `null` and `selection-hook` isn't a dependency, so every capture uses the synthetic `Cmd+C` fallback — but the comments describe an accessibility-first reader that doesn't exist. The clipboard fallback also only snapshots/restores the **text** representation, so an image/file on the clipboard is lost on each capture.
-- **Why:** Misleading comments; silent clipboard data loss for non-text clipboards; apps that ignore synthetic Cmd+C return nothing.
-- **How to start:** Either wire `selection-hook` (or a native AX read) for real, or rewrite the comments to state clipboard-only reality and snapshot/restore all clipboard formats.
-- **Effort:** M (human) → M (CC).
+### ✅ DONE — Concurrent queries race into one notebook window (was P2)
+`StreamSession` tags each run with an id and drops events from superseded runs (both queued
+and live), so query B can't be overwritten by query A's late tokens. Unit-tested.
+
+### ✅ DONE — Capture honesty: accessibility path is a stub (was P2)
+`selection-hook` (N-API, macOS AXAPI) is now a real dependency wired into
+`readAccessibilitySelection()` (lazy-loaded with a clipboard fallback if the native module
+won't load). The clipboard fallback now snapshots/restores ALL formats (text/HTML/RTF/image),
+and hover does a passive AX read only — the synthetic Cmd+C runs solely on explicit actions.
+
+### ✅ DONE — Cloud vision is silently dropped (was P3)
+`model-router.ts` is now capability-aware (`isVisionCapable`): a user-picked vision model
+(gpt-4o, claude, llava) handles images; local llava is only forced when the pick can't see.
+`imagePath` is threaded through the OpenAI + Anthropic clients as image content blocks.
+
+### ✅ DONE — Surface cloud API error bodies (was P3)
+Extracted `stream-error.ts` (`readStreamErrorMessage`) shared by all three clients, so
+OpenAI/Anthropic now surface the provider's real message instead of "status code 400".
 
 ### P3 — Markdown serializer isn't comma/quote-safe for tags
 - **What:** `markdown-store.ts` parses the `tags: [a, b]` flow list by splitting on `,` before unescaping, so a tag containing a comma doesn't round-trip. `esc()` only quotes on `:#\n`. (Covered as a known limitation in `markdown-store.test.ts`.)
 - **Why:** Low real risk today (tags are app name + language), but it's silent corruption of the source-of-truth files if a comma ever lands in a tag.
 - **How to start:** Quote-aware split, or store tags as JSON. Add the comma round-trip case to the test once fixed.
-- **Effort:** S (human) → S (CC).
-
-### P3 — Cloud vision is silently dropped
-- **What:** `model-router.ts` forces the local `visionModel` (llava) for any image even when the user picked a vision-capable cloud model (e.g. gpt-4o), and the OpenAI/Anthropic clients don't accept `imagePath` at all. Result: a screenshot with a cloud model selected switches to llava, which may not be installed → confusing error.
-- **Why:** Surprising model switch; broken UX if llava isn't pulled.
-- **How to start:** Let cloud clients take an image (both APIs support it), and only force llava when the selected model isn't vision-capable.
-- **Effort:** M (human) → S (CC).
-
-### P3 — Surface cloud API error bodies
-- **What:** Only the Ollama client reads the error response stream for a useful message. OpenAI/Anthropic show `error.message` ("Request failed with status code 400") except for 401.
-- **Why:** Users can't tell why a cloud call failed (bad model, quota, etc.).
-- **How to start:** Read `error.response.data` (stream) like `ollama-llm-client.ts` does and include the API's message.
 - **Effort:** S (human) → S (CC).
 
 ### P3 — Unprompted model download on launch

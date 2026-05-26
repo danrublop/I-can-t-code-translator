@@ -28,19 +28,45 @@ export interface RouteResult {
   reason: string;
 }
 
+// Known vision-capable models. Cloud entries are matched by the picker's prefixed ids
+// (multi-llm-client.CLOUD_MODELS); local entries are matched as substrings of the Ollama
+// tag (so `llava:latest`, `llama3.2-vision:11b`, etc. all qualify). Conservative by design:
+// a model we don't recognize is treated as text-only and images fall back to local vision.
+const CLOUD_VISION = new Set([
+  'openai/gpt-4o',
+  'openai/gpt-4o-mini',
+  'anthropic/claude-sonnet-4-5',
+  'anthropic/claude-3-5-haiku-latest',
+]);
+const LOCAL_VISION_HINTS = ['llava', 'bakllava', 'vision', 'moondream', 'minicpm-v', 'qwen2-vl', 'qwen2.5vl'];
+
+/** True if `model` can accept image input (cloud allow-list or a known local vision tag). */
+export function isVisionCapable(model: string | undefined): boolean {
+  if (!model) return false;
+  if (CLOUD_VISION.has(model)) return true;
+  const lower = model.toLowerCase();
+  return LOCAL_VISION_HINTS.some((h) => lower.includes(h));
+}
+
 /**
- * Resolve which local model should answer this query.
+ * Resolve which model should answer this query.
  *
  * Precedence:
- *   image input                -> visionModel            (vision is required for images)
- *   text + userSelectedModel   -> that model             (explicit pick wins)
- *   text + preset.defaultModel -> that model
- *   text (nothing else)        -> defaultTextModel
+ *   image + user picked a vision-capable model -> that model   (cloud or local; honor the pick)
+ *   image + picked model can't see (or none)   -> visionModel  (fall back to local vision)
+ *   text  + userSelectedModel                  -> that model   (explicit pick wins)
+ *   text  + preset.defaultModel                -> that model
+ *   text  (nothing else)                       -> defaultTextModel
  */
 export function routeModel(input: RouteInput, config: RouterConfig): RouteResult {
   if (input.kind === 'image') {
-    // Images need a vision-capable model; the text picker can't be trusted to be one.
-    return { model: config.visionModel, reason: 'image input routed to vision model' };
+    // Honor a vision-capable pick (e.g. gpt-4o, claude) so the user isn't silently
+    // switched to local llava. Only force the local vision model when the picked model
+    // can't see — otherwise the request would fail confusingly.
+    if (isVisionCapable(input.userSelectedModel)) {
+      return { model: input.userSelectedModel as string, reason: 'user-selected vision-capable model' };
+    }
+    return { model: config.visionModel, reason: 'image input routed to local vision model' };
   }
 
   if (input.userSelectedModel) {

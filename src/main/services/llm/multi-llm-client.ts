@@ -24,7 +24,7 @@ export const CLOUD_MODELS: Record<'openai' | 'anthropic', string[]> = {
 export class MultiLlmClient implements LlmClient {
   constructor(private readonly deps: { ollama: LlmClient; openai: LlmClient; anthropic: LlmClient }) {}
 
-  async generate(opts: { model: string; prompt: string; imagePath?: string; onToken?: (partial: string) => void }): Promise<string> {
+  async generate(opts: { model: string; prompt: string; imagePath?: string; onToken?: (delta: string) => void; signal?: AbortSignal }): Promise<string> {
     const { provider, id } = parseModel(opts.model);
     const client = provider === 'openai' ? this.deps.openai : provider === 'anthropic' ? this.deps.anthropic : this.deps.ollama;
     return client.generate({ ...opts, model: id });

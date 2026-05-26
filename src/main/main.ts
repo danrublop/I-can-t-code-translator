@@ -4,10 +4,11 @@ import { randomUUID } from 'crypto';
 import { rmSync, existsSync, readFileSync, statSync } from 'fs';
 import { OllamaProcessService } from './services/ollama-process.service';
 // Notch panel stack (notch/notebook pivot)
-import { createMacCaptureProvider } from './services/capture/mac-capture';
+import { createMacCaptureProvider, isAccessibilityTrusted } from './services/capture/mac-capture';
 import type { CaptureProvider } from './services/capture/capture';
 import { captureRegion } from './services/vision/screenshot';
 import { NotchController } from './services/notch/notch-controller';
+import { StreamSession } from './services/notch/stream-session';
 import { OllamaLlmClient } from './services/llm/ollama-llm-client';
 import { OpenAiLlmClient } from './services/llm/openai-llm-client';
 import { AnthropicLlmClient } from './services/llm/anthropic-llm-client';
@@ -42,6 +43,7 @@ class MainProcess {
 
   private ollamaProcessService = new OllamaProcessService();
   private notchController: NotchController | null = null;
+  private streamSession: StreamSession | null = null;
   private captureProvider: CaptureProvider | null = null;
   private notebookStore: NotebookStore | null = null;
   private llmClient: OllamaLlmClient | null = null;
@@ -111,6 +113,13 @@ class MainProcess {
         presets: BUILT_IN_PRESETS,
         newId: () => randomUUID(),
         now: () => new Date().toISOString(),
+      });
+      // Owns streaming into the notebook window: buffers until the renderer is ready,
+      // tags each run so a superseding query can't be overwritten by a stale stream, and
+      // carries an AbortSignal so a superseded / window-closed run stops generating.
+      this.streamSession = new StreamSession({
+        send: (channel, payload) => this.sendNotebook(channel, payload),
+        newId: () => randomUUID(),
       });
     } catch (err) {
       console.error('Failed to set up notch stack:', err);
@@ -224,13 +233,19 @@ class MainProcess {
     const panel = this.notchPanel;
     if (!panel) return;
 
+    // First explicit use without Accessibility granted: surface the permission prompt up
+    // front rather than after a confusing empty capture (the native AX read returns null
+    // silently when untrusted).
+    if (process.platform === 'darwin' && !isAccessibilityTrusted()) this.promptAccessibility();
+
     // Capture the current selection BEFORE showing our panel (focus is still on the
-    // source app). On-demand only — never monitored in the background.
+    // source app). On-demand only — never monitored in the background. This is an explicit
+    // action, so the synthetic-Cmd+C clipboard fallback is allowed.
     let captured: { selection: string; sourceApp?: string; empty: boolean; error?: string } =
       { selection: '', sourceApp: undefined, empty: true };
     try {
       if (this.captureProvider) {
-        const res = await this.captureProvider.captureSelection();
+        const res = await this.captureProvider.captureSelection({ allowClipboardFallback: true });
         captured = { selection: res.text, sourceApp: res.sourceApp, empty: res.text.trim().length === 0 };
       }
     } catch (e) {
@@ -304,8 +319,17 @@ class MainProcess {
         preload: join(__dirname, 'preload-notebook.js'),
       },
     });
+    // A fresh load means the renderer hasn't mounted its listeners yet — buffer events
+    // until it signals 'notebook:ready' (handshake), and re-buffer on any reload.
+    this.streamSession?.markNotReady();
+    this.notebookWindow.webContents.on('did-start-loading', () => this.streamSession?.markNotReady());
     this.notebookWindow.loadFile(join(__dirname, '..', 'notebook.html')).catch((e) => console.error('Failed to load notebook:', e));
-    this.notebookWindow.on('closed', () => { this.notebookWindow = null; });
+    this.notebookWindow.on('closed', () => {
+      this.notebookWindow = null;
+      // No window to stream into — stop any in-flight generation and re-buffer.
+      this.streamSession?.abortActive();
+      this.streamSession?.markNotReady();
+    });
   }
 
   private showNotebook(): void {
@@ -368,17 +392,20 @@ class MainProcess {
       attachments?: string[]; // absolute paths the user attached via the picker
       autoOpen?: boolean; // open the notebook automatically when done (default true)
     }) => {
-      if (!this.notchController) return { ok: false, error: 'Notch controller not ready' };
+      if (!this.notchController || !this.streamSession) return { ok: false, error: 'Notch controller not ready' };
+      const session = this.streamSession;
 
       const attachments = this.readAttachments(req.attachments);
 
       // The answer streams into the notebook window (created hidden if not open). The panel
-      // only shows progress + an Open button.
+      // only shows progress + an Open button. beginRun aborts any prior in-flight query and
+      // gives us a run id (so its late tokens can't overwrite this one) + an abort signal.
       this.createNotebookWindow();
+      const { runId, signal } = session.beginRun();
       const preset = req.presetId ? BUILT_IN_PRESETS.find((p) => p.id === req.presetId) : undefined;
       const label = preset?.name ?? (req.freeText?.trim() || 'Ask');
       const displayModel = req.userSelectedModel || (req.kind === 'image' ? VISION_MODEL : DEFAULT_TEXT_MODEL);
-      this.sendNotebook('notebook:start', { prompt: label, selection: req.selection ?? '', sourceApp: req.sourceApp, model: displayModel });
+      session.emit(runId, 'notebook:start', { prompt: label, selection: req.selection ?? '', sourceApp: req.sourceApp, model: displayModel });
 
       try {
         const result = await this.notchController.runQuery({
@@ -392,18 +419,23 @@ class MainProcess {
               : undefined,
           imagePath: req.imagePath,
           attachments,
-          onToken: (partial) => this.sendNotebook('notebook:token', partial),
+          signal,
+          onToken: (delta) => session.emit(runId, 'notebook:token', delta),
         });
-        this.sendNotebook('notebook:done', result.answer);
-        this.sendNotebook('notebook:saved', result.entry.id);
+        session.emit(runId, 'notebook:done', result.answer);
+        session.emit(runId, 'notebook:saved', result.entry.id);
         if (req.autoOpen !== false) this.showNotebook(); // auto-open when done
         return { ok: true, answer: result.answer, model: result.model, entryId: result.entry.id };
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Unknown error';
-        this.sendNotebook('notebook:error', message);
-        if (req.autoOpen !== false) this.showNotebook();
+        // A cancelled run was superseded/closed deliberately — don't flash an error.
+        if (message !== 'cancelled') {
+          session.emit(runId, 'notebook:error', message);
+          if (req.autoOpen !== false) this.showNotebook();
+        }
         return { ok: false, error: message };
       } finally {
+        session.endRun(runId);
         // Clean up the temp screenshot once the model has consumed it.
         if (req.kind === 'image' && req.imagePath && existsSync(req.imagePath)) {
           try { rmSync(req.imagePath); } catch { /* ignore */ }
@@ -428,7 +460,10 @@ class MainProcess {
     ipcMain.handle('panel:capture', async () => {
       if (!this.captureProvider) return { selection: '', sourceApp: undefined, empty: true };
       try {
-        const r = await this.captureProvider.captureSelection();
+        // Hover-open is passive: do the native AX read only, never inject a synthetic Cmd+C
+        // just because the panel opened. The hotkey path (handleNotchHotkey) allows the
+        // clipboard fallback because it's an explicit user action.
+        const r = await this.captureProvider.captureSelection({ allowClipboardFallback: false });
         return { selection: r.text, sourceApp: r.sourceApp, empty: r.text.trim().length === 0 };
       } catch (e) {
         console.warn('panel:capture failed:', e);
@@ -436,6 +471,10 @@ class MainProcess {
         return { selection: '', sourceApp: undefined, empty: true, error: e instanceof Error ? e.message : 'capture failed' };
       }
     });
+
+    // Renderer handshake: the notebook view has mounted and attached its notebook:* listeners.
+    // Flush anything buffered while it was loading (fixes the first-answer-invisible drop).
+    ipcMain.on('notebook:ready', () => this.streamSession?.markReady());
 
     // Open the notebook window immediately (the panel's Open button) to watch streaming.
     ipcMain.on('open-notebook', () => this.showNotebook());

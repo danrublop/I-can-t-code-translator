@@ -20,7 +20,10 @@ export interface LlmClient {
     model: string;
     prompt: string;
     imagePath?: string;
-    onToken?: (partial: string) => void;
+    /** Called with each new text chunk (a delta, NOT the cumulative answer). */
+    onToken?: (delta: string) => void;
+    /** Abort the in-flight request (panel closed / superseded by a newer query). */
+    signal?: AbortSignal;
   }): Promise<string>;
 }
 
@@ -54,8 +57,10 @@ export interface QueryRequest {
   attachments?: Array<{ name: string; content: string }>;
   /** Language detected for the selection, if any (used as a tag). */
   language?: string;
-  /** Stream callback for partial answer tokens. */
-  onToken?: (partial: string) => void;
+  /** Stream callback for each new answer chunk (a delta, not cumulative). */
+  onToken?: (delta: string) => void;
+  /** Abort the in-flight generation (query superseded / notebook window closed). */
+  signal?: AbortSignal;
 }
 
 export interface QueryResult {
@@ -96,6 +101,7 @@ export class NotchController {
       prompt,
       imagePath: req.kind === 'image' ? req.imagePath : undefined,
       onToken: req.onToken,
+      signal: req.signal,
     });
 
     const entry = makeEntry({

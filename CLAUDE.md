@@ -35,15 +35,17 @@ npm run dist:mac # package a universal macOS dmg/zip
 src/main/
   main.ts                       window / tray / global-shortcut / IPC glue (runtime only)
   services/
-    capture/                    on-demand selection capture (accessibility stub → clipboard fallback)
+    capture/                    on-demand selection capture (selection-hook AXAPI → synthetic Cmd+C fallback)
     vision/screenshot.ts        screencapture -i region grab
     llm/                        MultiLlmClient routes by model id → ollama | openai | anthropic
+                                (+ stream-error.ts: shared provider error-body reader)
     notch/notch-controller.ts   orchestration: build prompt → route model → stream → save
-    router/model-router.ts      pure model-selection precedence
+    notch/stream-session.ts     streaming lifecycle: readiness queue + request-id + AbortSignal
+    router/model-router.ts      pure model-selection precedence (+ vision capability)
     presets/                    built-in action prompts (Debug/Translate/…)
     notebook/                   MarkdownStore (truth) + SqliteNotebookIndex (FTS5) + reconcile
     settings/                   API keys, encrypted at rest via safeStorage
-    ollama-process.service.ts   auto-start / install Ollama
+    ollama-process.service.ts   auto-start Ollama; detect install, link to ollama.com if absent
 src/renderer/
   panel.tsx                     the notch HUD
   notebook.tsx                  notebook + in-pane settings

@@ -8,6 +8,7 @@
 import axios from 'axios';
 import { readFileSync } from 'fs';
 import type { LlmClient } from '../notch/notch-controller';
+import { readStreamErrorMessage } from './stream-error';
 
 const BASE_URL = 'http://127.0.0.1:11434';
 const TIMEOUT_MS = 300000;
@@ -52,7 +53,8 @@ export class OllamaLlmClient implements LlmClient {
     model: string;
     prompt: string;
     imagePath?: string;
-    onToken?: (partial: string) => void;
+    onToken?: (delta: string) => void;
+    signal?: AbortSignal;
   }): Promise<string> {
     const body: Record<string, unknown> = {
       model: opts.model,
@@ -68,6 +70,7 @@ export class OllamaLlmClient implements LlmClient {
       const response = await axios.post(`${BASE_URL}/api/generate`, body, {
         timeout: TIMEOUT_MS,
         responseType: 'stream',
+        signal: opts.signal,
       });
 
       return await new Promise<string>((resolve, reject) => {
@@ -83,7 +86,7 @@ export class OllamaLlmClient implements LlmClient {
               const data = JSON.parse(line);
               if (typeof data.response === 'string') {
                 full += data.response;
-                opts.onToken?.(full);
+                opts.onToken?.(data.response); // delta chunk, not cumulative
               }
               if (data.done) resolve(full);
             } catch {
@@ -98,6 +101,7 @@ export class OllamaLlmClient implements LlmClient {
         response.data.on('error', (err: Error) => reject(new Error(`Ollama stream error: ${err.message}`)));
       });
     } catch (error) {
+      if (axios.isCancel(error)) throw new Error('cancelled');
       if (axios.isAxiosError(error)) {
         if (error.code === 'ECONNREFUSED') {
           throw new Error('Ollama is not running. Start it and try again.');
@@ -107,32 +111,11 @@ export class OllamaLlmClient implements LlmClient {
         }
         // Read Ollama's actual error body (the response is a stream) for a useful message,
         // e.g. "model 'X' not found" or "this model does not support images".
-        const detail = await readStreamMessage(error.response?.data);
+        const detail = await readStreamErrorMessage(error.response?.data);
         const status = error.response?.status;
         throw new Error(`Ollama error${status ? ` (${status})` : ''}: ${detail || error.message}`);
       }
       throw error;
     }
   }
-}
-
-/** Best-effort read of an error response stream into Ollama's `{error}` message. */
-async function readStreamMessage(stream: unknown): Promise<string> {
-  if (!stream || typeof (stream as { on?: unknown }).on !== 'function') return '';
-  return await new Promise<string>((resolve) => {
-    let data = '';
-    const s = stream as NodeJS.ReadableStream;
-    const done = () => {
-      try {
-        const j = JSON.parse(data);
-        resolve(typeof j.error === 'string' ? j.error : data.slice(0, 200));
-      } catch {
-        resolve(data.slice(0, 200));
-      }
-    };
-    s.on('data', (c: Buffer) => { data += c.toString(); });
-    s.on('end', done);
-    s.on('error', () => resolve(''));
-    setTimeout(done, 2000);
-  });
 }

@@ -120,6 +120,19 @@ export class SqliteNotebookIndex implements NotebookIndex {
     tx();
   }
 
+  // Reverse a tombstone: the entries row still holds body/tags, so we clear the flag and
+  // rebuild the FTS row from it. Used by undo-delete (file is still on disk).
+  untombstone(id: string): void {
+    const tx = this.db.transaction(() => {
+      const row = this.db.prepare('SELECT body, tags FROM entries WHERE id = ?').get(id) as { body: string; tags: string } | undefined;
+      if (!row) return;
+      this.db.prepare('UPDATE entries SET tombstoned = 0 WHERE id = ?').run(id);
+      this.db.prepare('DELETE FROM entries_fts WHERE id = ?').run(id);
+      this.db.prepare('INSERT INTO entries_fts (id, body, tags) VALUES (?, ?, ?)').run(id, row.body, safeParseTags(row.tags).join(' '));
+    });
+    tx();
+  }
+
   search(query: string): SearchHit[] {
     // Sanitize into a safe FTS5 query: tokenize on word chars, quote each token (so FTS5
     // syntax like " ( ) * : - AND/OR can't trigger a syntax error), prefix-match each.

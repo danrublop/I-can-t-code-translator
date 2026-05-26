@@ -70,6 +70,8 @@ export interface NotebookIndex {
   upsert(row: IndexUpsert): void;
   /** Mark a row tombstoned (file gone from disk). */
   tombstone(id: string): void;
+  /** Reverse a tombstone, restoring the row to search/list (used by undo-delete). */
+  untombstone(id: string): void;
   /** Full-text search over live (non-tombstoned) rows. */
   search(query: string): SearchHit[];
   /** All live notes for the sidebar (pinned first, then newest). */

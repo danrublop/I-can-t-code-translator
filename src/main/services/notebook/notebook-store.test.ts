@@ -28,6 +28,10 @@ class FakeIndex implements NotebookIndex {
     const r = this.rows.get(id);
     if (r) r.tombstoned = true;
   }
+  untombstone(id: string): void {
+    const r = this.rows.get(id);
+    if (r) r.tombstoned = false;
+  }
   search(query: string): SearchHit[] {
     const q = query.toLowerCase();
     return [...this.rows.entries()]
@@ -100,13 +104,37 @@ describe('NotebookStore', () => {
     expect(store.search('original')).toHaveLength(0); // old body gone
   });
 
-  it('syncFromDisk tombstones an entry whose file was deleted', () => {
+  it('syncFromDisk tombstones an entry whose file was deleted externally', () => {
     store.save(makeEntry({ id: 'e4', body: 'soon gone', tags: [], model: 'm', sourceApp: 'A' }));
-    store.delete('e4');
+    rmSync(join(dir, 'e4.md')); // file vanishes outside the app (e.g. user deleted the .md)
 
     const summary = store.syncFromDisk();
     expect(summary.tombstoned).toBe(1);
     expect(store.search('gone')).toHaveLength(0);
+  });
+
+  it('delete() removes the note from disk and the index immediately', () => {
+    store.save(makeEntry({ id: 'e4b', body: 'remove me now', tags: [], model: 'm', sourceApp: 'A' }));
+    expect(store.list().map((n) => n.id)).toContain('e4b');
+
+    store.delete('e4b');
+
+    expect(existsSync(join(dir, 'e4b.md'))).toBe(false);
+    expect(store.list().map((n) => n.id)).not.toContain('e4b');
+    expect(store.getBody('e4b')).toBeNull();
+  });
+
+  it('hide() then restore() round-trips a note without touching the file (undo-delete)', () => {
+    store.save(makeEntry({ id: 'e4c', body: 'undo me', tags: [], model: 'm', sourceApp: 'A' }));
+
+    store.hide('e4c');
+    expect(store.list().map((n) => n.id)).not.toContain('e4c'); // hidden from the UI
+    expect(store.search('undo')).toHaveLength(0);
+    expect(existsSync(join(dir, 'e4c.md'))).toBe(true); // file kept for undo
+
+    store.restore('e4c');
+    expect(store.list().map((n) => n.id)).toContain('e4c'); // back in the list
+    expect(store.search('undo').map((h) => h.id)).toEqual(['e4c']);
   });
 
   it('syncFromDisk inserts a file that appeared on disk outside the app', () => {

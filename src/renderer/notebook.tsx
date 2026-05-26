@@ -16,6 +16,10 @@ interface NotebookAPI {
   rename: (id: string, title: string) => Promise<void>;
   setPinned: (id: string, pinned: boolean) => Promise<void>;
   updateBody: (id: string, body: string) => Promise<void>;
+  hide: (id: string) => Promise<void>;
+  restore: (id: string) => Promise<void>;
+  remove: (id: string) => Promise<void>;
+  onShowSettings: (cb: () => void) => () => void;
   onSaved: (cb: (id: string) => void) => () => void;
   onStart: (cb: (meta: NotebookMeta) => void) => () => void;
   onToken: (cb: (partial: string) => void) => () => void;
@@ -49,7 +53,47 @@ const Ico = {
   code: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 18 22 12 16 6" /><polyline points="8 6 2 12 8 18" /></svg>,
   link: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.7 1.7" /><path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.7-1.7" /></svg>,
   pin: <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M14.4 2.6a1 1 0 0 0-1.4 0l-.7.7a1 1 0 0 0-.1 1.3l.2.3-3.9 3.9-2.8.5a1 1 0 0 0-.5 1.7l3 3L4 21l4.8-4 3 3a1 1 0 0 0 1.7-.5l.5-2.8 3.9-3.9.3.2a1 1 0 0 0 1.3-.1l.7-.7a1 1 0 0 0 0-1.4z" /></svg>,
+  trash: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>,
+  copy: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>,
+  download: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>,
 };
+
+// Convert the editor's sanitized HTML into Markdown for copy/export. Handles the limited
+// tag set the editor produces (headings, lists, quote, code, emphasis, links).
+function htmlToMarkdown(root: HTMLElement): string {
+  const inline = (node: Node): string => {
+    if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? '';
+    if (node.nodeType !== Node.ELEMENT_NODE) return '';
+    const el = node as HTMLElement;
+    const inner = Array.from(el.childNodes).map(inline).join('');
+    switch (el.tagName) {
+      case 'STRONG': case 'B': return `**${inner}**`;
+      case 'EM': case 'I': return `*${inner}*`;
+      case 'CODE': return `\`${inner}\``;
+      case 'A': return `[${inner}](${el.getAttribute('href') ?? ''})`;
+      case 'BR': return '  \n';
+      default: return inner;
+    }
+  };
+  const lines: string[] = [];
+  for (const child of Array.from(root.childNodes)) {
+    if (child.nodeType === Node.TEXT_NODE) { const t = (child.textContent ?? '').trim(); if (t) lines.push(t, ''); continue; }
+    if (child.nodeType !== Node.ELEMENT_NODE) continue;
+    const c = child as HTMLElement;
+    switch (c.tagName) {
+      case 'H1': lines.push(`# ${inline(c).trim()}`, ''); break;
+      case 'H2': lines.push(`## ${inline(c).trim()}`, ''); break;
+      case 'H3': lines.push(`### ${inline(c).trim()}`, ''); break;
+      case 'BLOCKQUOTE': lines.push(`> ${inline(c).trim()}`, ''); break;
+      case 'PRE': lines.push('```', (c.textContent ?? '').replace(/\n+$/, ''), '```', ''); break;
+      case 'UL': c.querySelectorAll(':scope > li').forEach((li) => lines.push(`- ${inline(li).trim()}`)); lines.push(''); break;
+      case 'OL': { let i = 1; c.querySelectorAll(':scope > li').forEach((li) => lines.push(`${i++}. ${inline(li).trim()}`)); lines.push(''); break; }
+      case 'HR': lines.push('---', ''); break;
+      default: { const t = inline(c).trim(); if (t) lines.push(t, ''); }
+    }
+  }
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
 
 function Notebook() {
   const [notes, setNotes] = useState<NoteSummary[]>([]);
@@ -65,6 +109,9 @@ function Notebook() {
   const [image, setImage] = useState<string | null>(null); // capture data URL for the selected note
   const [words, setWords] = useState(0); // live word count of the editor
   const [fmt, setFmt] = useState({ bold: false, italic: false, underline: false, ul: false, ol: false, block: '' });
+  const [toast, setToast] = useState<{ msg: string; undo?: () => void } | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingDelete = useRef<{ id: string; timer: ReturnType<typeof setTimeout> } | null>(null);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const editorRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -145,7 +192,8 @@ function Notebook() {
       setNotes(list);
       selectNote(id, list);
     });
-    return () => { offStart(); offToken(); offDone(); offErr(); offSaved(); };
+    const offSettings = window.notebookAPI.onShowSettings(() => setView('settings'));
+    return () => { offStart(); offToken(); offDone(); offErr(); offSaved(); offSettings(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -178,6 +226,71 @@ function Notebook() {
     window.notebookAPI.setPinned(n.id, !n.pinned).then(refresh).catch(() => {});
   }
 
+  // Commit any pending (toast-window) delete for real — removes the file.
+  const commitDelete = useCallback(() => {
+    const p = pendingDelete.current;
+    if (!p) return;
+    clearTimeout(p.timer);
+    pendingDelete.current = null;
+    window.notebookAPI.remove(p.id).catch(() => {});
+  }, []);
+
+  // Finalize a pending (toast-window) delete if the window closes before the timer fires.
+  useEffect(() => commitDelete, [commitDelete]);
+
+  // Brief auto-dismissing status toast (no Undo button).
+  const showInfo = useCallback((msg: string) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast({ msg });
+    toastTimer.current = setTimeout(() => setToast(null), 2400);
+  }, []);
+
+  function noteAsMarkdown(): string {
+    const body = editorRef.current ? htmlToMarkdown(editorRef.current) : '';
+    return (title.trim() ? `# ${title.trim()}\n\n` : '') + body;
+  }
+
+  async function copyNote() {
+    try { await navigator.clipboard.writeText(noteAsMarkdown()); showInfo('Copied as Markdown'); }
+    catch { showInfo('Copy failed'); }
+  }
+
+  function exportNote() {
+    const md = noteAsMarkdown();
+    const blob = new Blob([md + '\n'], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${(title.trim() || 'note').replace(/[^\w.-]+/g, '-').slice(0, 60)}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showInfo('Exported Markdown');
+  }
+
+  async function deleteNote(e: React.MouseEvent, n: NoteSummary) {
+    e.stopPropagation();
+    commitDelete(); // finalize any earlier delete before starting a new one
+    await window.notebookAPI.hide(n.id).catch(() => {}); // reversible: file stays on disk
+    setNotes((ns) => ns.filter((x) => x.id !== n.id));
+    setResults((r) => (r ? r.filter((x) => x.id !== n.id) : r));
+    if (selectedRef.current === n.id) {
+      const rest = notes.filter((x) => x.id !== n.id);
+      if (rest.length) selectNote(rest[0].id, rest); else newNote();
+    }
+    const timer = setTimeout(() => { setToast(null); commitDelete(); }, 6000);
+    pendingDelete.current = { id: n.id, timer };
+    setToast({
+      msg: `Deleted “${n.title || 'Untitled'}”`,
+      undo: async () => {
+        const p = pendingDelete.current;
+        if (p) { clearTimeout(p.timer); pendingDelete.current = null; }
+        await window.notebookAPI.restore(n.id).catch(() => {});
+        setNotes(await window.notebookAPI.list());
+        setToast(null);
+      },
+    });
+  }
+
   function saveBody() {
     if (selectedRef.current && !streamingRef.current && editorRef.current) {
       // Sanitize the edited content to a clean HTML string (DOMPurify reads the node and
@@ -196,6 +309,53 @@ function Notebook() {
   function addLink() {
     const url = window.prompt('Link URL');
     if (url) format('createLink', url.trim());
+  }
+
+  // Markdown-style autoformat: typing a prefix + space at the start of a line converts it.
+  const MD_PREFIX: Array<[RegExp, () => void]> = [
+    [/^###$/, () => format('formatBlock', 'h3')],
+    [/^##$/, () => format('formatBlock', 'h2')],
+    [/^#$/, () => format('formatBlock', 'h1')],
+    [/^>$/, () => format('formatBlock', 'blockquote')],
+    [/^[-*]$/, () => format('insertUnorderedList')],
+    [/^\d+\.$/, () => format('insertOrderedList')],
+  ];
+  function onEditorKeyDown(e: React.KeyboardEvent) {
+    if (e.key !== ' ' || e.metaKey || e.ctrlKey) return;
+    const sel = window.getSelection();
+    const node = sel?.anchorNode;
+    // Only on a collapsed caret inside a text node, where anchorOffset is a char offset.
+    if (!sel || !sel.isCollapsed || !node || node.nodeType !== Node.TEXT_NODE) return;
+    const before = (node.textContent ?? '').slice(0, sel.anchorOffset);
+    const match = MD_PREFIX.find(([re]) => re.test(before));
+    if (!match) return;
+    e.preventDefault();
+    const range = document.createRange();      // delete the typed prefix…
+    range.setStart(node, 0);
+    range.setEnd(node, before.length);
+    range.deleteContents();
+    range.collapse(true);                       // …reset the caret to the cleaned line start…
+    sel.removeAllRanges();
+    sel.addRange(range);
+    match[1]();                                 // …then apply the block format.
+  }
+
+  // Paste sanitized formatting (clean tags only) instead of styled web markup.
+  function onEditorPaste(e: React.ClipboardEvent) {
+    const cb = e.clipboardData;
+    if (!cb) return;
+    e.preventDefault();
+    const html = cb.getData('text/html');
+    if (html) {
+      const clean = DOMPurify.sanitize(html, {
+        ALLOWED_TAGS: ['p', 'br', 'b', 'strong', 'i', 'em', 'u', 'a', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'blockquote', 'code', 'pre', 'hr'],
+        ALLOWED_ATTR: ['href'],
+      });
+      document.execCommand('insertHTML', false, clean);
+    } else {
+      document.execCommand('insertText', false, cb.getData('text/plain'));
+    }
+    recountWords();
   }
 
   function applyFont(f: string) { setFont(f); localStorage.setItem('nb-font', f); }
@@ -232,7 +392,10 @@ function Notebook() {
         <div className="title">{n.title || 'Untitled'}</div>
         <div className="meta">{n.createdAt && relTime(n.createdAt) ? `${relTime(n.createdAt)} · ` : ''}{n.snippet}</div>
       </div>
-      <button className={`pin${n.pinned ? ' on' : ''}`} onClick={(e) => togglePin(e, n)} title={n.pinned ? 'Unpin' : 'Pin'}>{Ico.pin}</button>
+      <span className="row-actions">
+        <button className={`pin${n.pinned ? ' on' : ''}`} onClick={(e) => togglePin(e, n)} title={n.pinned ? 'Unpin' : 'Pin'}>{Ico.pin}</button>
+        <button className="row-del" onClick={(e) => deleteNote(e, n)} title="Delete note">{Ico.trash}</button>
+      </span>
     </div>
   );
 
@@ -304,7 +467,14 @@ function Notebook() {
       </aside>
 
       <main className="main">
-        <div className="main-top" />
+        <div className="main-top">
+          {view === 'notes' && streaming !== 'streaming' && (words > 0 || selectedId) && (
+            <div className="main-actions">
+              <button onClick={copyNote} title="Copy as Markdown">{Ico.copy}</button>
+              <button onClick={exportNote} title="Export as Markdown (.md)">{Ico.download}</button>
+            </div>
+          )}
+        </div>
         {view === 'settings' ? (
           <div className="settings-pane">
             <button className="settings-back" onClick={() => setView('notes')} title="Back to notes">
@@ -339,6 +509,8 @@ function Notebook() {
             contentEditable={streaming !== 'streaming'}
             suppressContentEditableWarning
             onInput={recountWords}
+            onKeyDown={onEditorKeyDown}
+            onPaste={onEditorPaste}
             onBlur={saveBody}
             style={{ fontFamily: font, fontSize: `${size}px` }}
           />
@@ -377,6 +549,13 @@ function Notebook() {
         </>
         )}
       </main>
+
+      {toast && (
+        <div className="toast" role="status">
+          <span className="toast-msg">{toast.msg}</span>
+          <button className="toast-undo" onClick={toast.undo}>Undo</button>
+        </div>
+      )}
     </div>
   );
 }

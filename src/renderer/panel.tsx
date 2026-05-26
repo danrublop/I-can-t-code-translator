@@ -2,15 +2,16 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrandIcon } from './model-icon';
 // Deep per-icon imports (the lucide-react barrel pulls in all ~1000 icons / ~700KB).
-import ChevronDown from 'lucide-react/dist/esm/icons/chevron-down';
 import NotebookText from 'lucide-react/dist/esm/icons/notebook-text';
-import Camera from 'lucide-react/dist/esm/icons/camera';
-import Sparkles from 'lucide-react/dist/esm/icons/sparkles';
+import Crop from 'lucide-react/dist/esm/icons/crop';
 import Bug from 'lucide-react/dist/esm/icons/bug';
 import Languages from 'lucide-react/dist/esm/icons/languages';
 import PenLine from 'lucide-react/dist/esm/icons/pen-line';
 import AlignLeft from 'lucide-react/dist/esm/icons/align-left';
 import Paperclip from 'lucide-react/dist/esm/icons/paperclip';
+import CornerDownLeft from 'lucide-react/dist/esm/icons/corner-down-left';
+import ArrowUpRight from 'lucide-react/dist/esm/icons/arrow-up-right';
+import Check from 'lucide-react/dist/esm/icons/check';
 import X from 'lucide-react/dist/esm/icons/x';
 import './panel.css';
 
@@ -63,9 +64,9 @@ function CircleMeter({ pct, size = 22 }: { pct: number; size?: number }) {
   return (
     <span className="meter" title={`${pct}% of context budget queued`}>
       <svg width={size} height={size}>
-        <circle cx={center} cy={center} r={r} fill="none" stroke="rgba(255,255,255,0.18)" strokeWidth={stroke} />
+        <circle cx={center} cy={center} r={r} fill="none" stroke="rgba(255,255,255,0.22)" strokeWidth={stroke} />
         <circle
-          cx={center} cy={center} r={r} fill="none" stroke="var(--accent)" strokeWidth={stroke}
+          cx={center} cy={center} r={r} fill="none" stroke="#ffffff" strokeWidth={stroke}
           strokeDasharray={c} strokeDashoffset={offset} strokeLinecap="round"
           transform={`rotate(-90 ${center} ${center})`}
         />
@@ -88,6 +89,7 @@ function Panel() {
   const typeInputRef = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState('');
+  const [answer, setAnswer] = useState('');
   const islandRef = useRef<HTMLDivElement>(null);
   const modelPickerRef = useRef<HTMLDivElement>(null);
 
@@ -137,7 +139,9 @@ function Panel() {
     setStatus('idle');
     setAttachments([]);
     setFreeText('');
+    setAnswer('');
     setTyping(false);
+    setModelOpen(false);
   }, [setInteractive]);
 
   const scheduleCollapse = useCallback(() => {
@@ -185,13 +189,14 @@ function Panel() {
   async function fire(req: PanelQueryRequest) {
     pinnedRef.current = true;
     setError('');
+    setAnswer('');
     setStatus('running');
     const res = await window.llamasAPI.runQuery({
       ...req,
       userSelectedModel: model || undefined,
       attachments: attachments.length ? attachments.map((a) => a.path) : undefined,
     });
-    if (res.ok) setStatus('done');
+    if (res.ok) { setAnswer(res.answer ?? ''); setStatus('done'); }
     else { setError(res.error ?? 'Something went wrong'); setStatus('error'); }
   }
 
@@ -229,12 +234,18 @@ function Panel() {
   // % of a rough context budget (~8000 chars) the selection fills; min 1% when non-empty.
   const ctxPct = hasSelection ? Math.max(1, Math.min(100, Math.round((selChars / 8000) * 100))) : 0;
   const busy = status === 'running';
+  // The arrow-top-right button opens the notebook. Icon-only while working; labelled "Open" once done.
+  const openBtn = (label: boolean) => (
+    <button className={`box-open${label ? '' : ' icon-only'}`} title="Open in notebook" onClick={() => window.llamasAPI.openNotebook()}>
+      {label && <span>Open</span>}<ArrowUpRight size={label ? 14 : 16} />
+    </button>
+  );
 
   return (
     <div className="stage">
       <div
         ref={islandRef}
-        className={`island${expanded ? ' expanded' : ''}${modelOpen ? ' menu-open' : ''}${attachments.length ? ' has-chips' : ''}`}
+        className={`island${expanded ? ' expanded' : ''}${modelOpen ? ' menu-open' : ''}`}
         onMouseEnter={() => { cancelCollapse(); if (!expandedRef.current) open(); }}
         onMouseLeave={scheduleCollapse}
       >
@@ -251,10 +262,9 @@ function Panel() {
         <div className="panel">
           <div className="hdr">
             <div className="model-picker" ref={modelPickerRef}>
-              <button className="model-btn" onClick={() => setModelOpen((v) => !v)} title="Model">
-                {model && <BrandIcon model={model} size={15} />}
-                <span className="model-name">{model || 'default model'}</span>
-                <ChevronDown size={13} className="chev" />
+              <button className="model-btn" onClick={() => setModelOpen((v) => !v)} title="Choose model">
+                {model ? <BrandIcon model={model} size={17} /> : <span className="dot" />}
+                <span className="model-chip">{model || 'default model'}</span>
               </button>
               {modelOpen && (
                 <div className="model-menu">
@@ -277,65 +287,91 @@ function Panel() {
             <CircleMeter pct={ctxPct} />
           </div>
 
+          {/* Action buttons — icon-only circles. ? opens an ask input; presets fire on tap. */}
           <div className="actions-row">
-            <div className="actions-wrap">
-              <div className="actions">
-                <button
-                  className="action ask-btn"
-                  disabled={busy}
-                  onClick={() => { setTyping(true); pinnedRef.current = true; setTimeout(() => typeInputRef.current?.focus(), 60); }}
-                >
-                  <Sparkles size={14} /> Ask
+            <div className="preset-actions">
+              <button
+                className={`cbtn ask${typing ? ' on' : ''}`}
+                disabled={busy}
+                title="Ask a question"
+                onClick={() => { setTyping((v) => !v); pinnedRef.current = true; setTimeout(() => typeInputRef.current?.focus(), 60); }}
+              ><span className="qm">?</span></button>
+              {ACTIONS.map((a) => (
+                <button key={a.id} className="cbtn" disabled={busy} title={a.name} onClick={() => runAction(a.id)}>
+                  <a.Icon size={16} />
                 </button>
-                {ACTIONS.map((a) => (
-                  <button key={a.id} className="action" disabled={busy} onClick={() => runAction(a.id)}>
-                    <a.Icon size={14} /> <span className="action-label">{a.name}</span>
-                  </button>
-                ))}
-              </div>
-              {/* Slides open over the buttons when "Type a question" is clicked. */}
-              <div className={`type-overlay${typing ? ' open' : ''}`}>
-                <input
-                  ref={typeInputRef}
-                  className="ask-input"
-                  placeholder="Type a question…"
-                  value={freeText}
-                  onChange={(e) => setFreeText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && (freeText.trim() || attachments.length)) { fire({ kind: 'text', selection, sourceApp, freeText: freeText.trim() || undefined }); setTyping(false); }
-                    if (e.key === 'Escape') setTyping(false);
-                  }}
-                />
-                <button className="type-close" onClick={() => setTyping(false)} title="Close">✕</button>
-              </div>
+              ))}
             </div>
-            <button className="icon-btn" onClick={attachFiles} disabled={busy} title="Attach files"><Paperclip size={16} /></button>
-            <button className="icon-btn" onClick={screenshot} disabled={busy} title="Capture a screenshot"><Camera size={17} /></button>
+            <span className="spacer" />
+            <button className="cbtn" onClick={attachFiles} disabled={busy} title="Attach files"><Paperclip size={16} /></button>
+            <button className="cbtn" onClick={screenshot} disabled={busy} title="Capture a screen region"><Crop size={16} /></button>
           </div>
 
-          {attachments.length > 0 && (
-            <div className="chips">
-              {attachments.map((a) => (
-                <span key={a.path} className="chip" title={a.path}>
-                  <Paperclip size={11} />
-                  <span className="chip-name">{a.name}</span>
-                  <button
-                    className="chip-x"
-                    onClick={() => setAttachments((prev) => prev.filter((p) => p.path !== a.path))}
-                    title="Remove"
-                  ><X size={11} /></button>
-                </span>
-              ))}
+          {/* Ask input — revealed when ? is tapped. */}
+          {typing && (
+            <div className="ask-row">
+              <input
+                ref={typeInputRef}
+                className="ask-input"
+                placeholder="Ask anything about the selection…"
+                value={freeText}
+                onChange={(e) => setFreeText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && (freeText.trim() || attachments.length || selection.trim())) { fire({ kind: 'text', selection, sourceApp, freeText: freeText.trim() || undefined }); setTyping(false); }
+                  if (e.key === 'Escape') setTyping(false);
+                }}
+              />
+              <button
+                className="ask-send"
+                disabled={busy || !(freeText.trim() || attachments.length || selection.trim())}
+                onClick={() => { fire({ kind: 'text', selection, sourceApp, freeText: freeText.trim() || undefined }); setTyping(false); }}
+                title="Send"
+              ><CornerDownLeft size={14} /></button>
             </div>
           )}
 
-          <div className="statusbar">
-            {status === 'running' && <div className="progress"><div className="bar" /></div>}
-            {status === 'done' && <span className="done">✓ saved to notebook</span>}
-            {status === 'error' && <span className="err">{error}</span>}
-            <span className="spacer" />
-            {(status === 'running' || status === 'done') && (
-              <button className="open-btn" onClick={() => window.llamasAPI.openNotebook()}>Open notebook →</button>
+          {/* Preview of what's queued, and where everything surfaces inside the box:
+              while working a light travels around the border; when done the response
+              fills the box with a small "saved" check; errors show in place. */}
+          <div className="preview">
+            {attachments.length > 0 && (
+              <div className="chips">
+                {attachments.map((a) => (
+                  <span key={a.path} className="chip" title={a.path}>
+                    <Paperclip size={11} />
+                    <span className="chip-name">{a.name}</span>
+                    <button
+                      className="chip-x"
+                      onClick={() => setAttachments((prev) => prev.filter((p) => p.path !== a.path))}
+                      title="Remove"
+                    ><X size={11} /></button>
+                  </span>
+                ))}
+              </div>
+            )}
+            {(hasSelection || attachments.length === 0 || status !== 'idle') && (
+              <div className={`box ${status === 'idle' ? (hasSelection ? 'has-sel' : 'is-empty') : 'active'} s-${status}`}>
+                {status === 'running' && openBtn(false)}
+                {status === 'done' && openBtn(true)}
+
+                {status === 'running' ? (
+                  <div className="sel-hint"><span className="working">Working…</span></div>
+                ) : status === 'error' ? (
+                  <div className="sel-hint">{error}</div>
+                ) : status === 'done' ? (
+                  <div className="sel-text">{answer || 'Saved to your notebook.'}</div>
+                ) : hasSelection ? (
+                  <div className="sel-text">{selection}</div>
+                ) : (
+                  <div className="sel-hint">No text selected. Select text in any app, attach a file, or tap ? to ask.</div>
+                )}
+
+                {status === 'done' && (
+                  <div className="box-status">
+                    <span className="saved" title="Saved to notebook"><Check size={14} /></span>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>

@@ -97,9 +97,22 @@ export class NotebookStore {
     else this.index.updateBody(id, body);
   }
 
-  /** Delete an entry from disk; the next syncFromDisk will tombstone the index row. */
+  /** Hide a note from list/search without deleting the file yet — the reversible first
+      step of a delete (paired with restore for undo, or delete to commit). */
+  hide(id: string): void {
+    this.index.tombstone(id);
+  }
+
+  /** Undo a hide: bring the note back into list/search (its file was never removed). */
+  restore(id: string): void {
+    this.index.untombstone(id);
+  }
+
+  /** Delete an entry: remove the markdown file and tombstone the index row immediately
+      (so the UI reflects it without waiting for the next syncFromDisk). Commits a hide. */
   delete(id: string): void {
     this.files.delete(id);
+    this.index.tombstone(id);
   }
 
   /**

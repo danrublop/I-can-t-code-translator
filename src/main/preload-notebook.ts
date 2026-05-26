@@ -31,11 +31,21 @@ const api = {
   rename: (id: string, title: string): Promise<void> => ipcRenderer.invoke('notebook:rename', id, title),
   setPinned: (id: string, pinned: boolean): Promise<void> => ipcRenderer.invoke('notebook:pin', id, pinned),
   updateBody: (id: string, body: string): Promise<void> => ipcRenderer.invoke('notebook:update-body', id, body),
+  hide: (id: string): Promise<void> => ipcRenderer.invoke('notebook:hide', id),
+  restore: (id: string): Promise<void> => ipcRenderer.invoke('notebook:restore', id),
+  remove: (id: string): Promise<void> => ipcRenderer.invoke('notebook:delete', id),
   /** Fired after a streamed answer is saved (id of the new note). */
   onSaved: (cb: (id: string) => void) => {
     const h = (_e: unknown, id: string) => cb(id);
     ipcRenderer.on('notebook:saved', h);
     return () => ipcRenderer.removeListener('notebook:saved', h);
+  },
+
+  /** Main asked to open the in-pane settings view (e.g. from the notch or the app menu). */
+  onShowSettings: (cb: () => void) => {
+    const h = () => cb();
+    ipcRenderer.on('notebook:show-settings', h);
+    return () => ipcRenderer.removeListener('notebook:show-settings', h);
   },
 
   /** A new query started — reset the view with its metadata. */

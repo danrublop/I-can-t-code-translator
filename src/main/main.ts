@@ -47,7 +47,6 @@ class MainProcess {
   private llmClient: OllamaLlmClient | null = null;
   private settingsService: SettingsService | null = null;
   private notebookWindow: BrowserWindow | null = null;
-  private settingsWindow: BrowserWindow | null = null;
 
   async initialize(): Promise<void> {
     await app.whenReady();
@@ -293,8 +292,9 @@ class MainProcess {
   private createNotebookWindow(): void {
     if (this.notebookWindow && !this.notebookWindow.isDestroyed()) return;
     this.notebookWindow = new BrowserWindow({
-      width: 560,
-      height: 680,
+      width: 900,
+      height: 720,
+      minWidth: 600,
       show: false,
       title: 'Llamas Remote — Notebook',
       titleBarStyle: 'hiddenInset',
@@ -344,28 +344,16 @@ class MainProcess {
     return out;
   }
 
+  // Settings lives in the notebook's right pane (single, unified surface). Open/focus the
+  // notebook window and tell it to switch to the settings view — waiting for first load if
+  // the window was just created so the renderer is listening when the message arrives.
   private showSettings(): void {
-    if (this.settingsWindow && !this.settingsWindow.isDestroyed()) {
-      this.settingsWindow.show();
-      this.settingsWindow.focus();
-      return;
-    }
-    this.settingsWindow = new BrowserWindow({
-      width: 520,
-      height: 600,
-      show: false,
-      title: 'Llamas Remote — Settings',
-      titleBarStyle: 'hiddenInset',
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: true,
-        preload: join(__dirname, 'preload-settings.js'),
-      },
-    });
-    this.settingsWindow.loadFile(join(__dirname, '..', 'settings.html')).catch((e) => console.error('Failed to load settings:', e));
-    this.settingsWindow.on('closed', () => { this.settingsWindow = null; });
-    if (process.platform === 'darwin') app.dock?.show();
-    this.settingsWindow.once('ready-to-show', () => { this.settingsWindow?.show(); this.settingsWindow?.focus(); });
+    const fresh = !this.notebookWindow || this.notebookWindow.isDestroyed();
+    this.showNotebook();
+    const win = this.notebookWindow;
+    if (!win) return;
+    if (fresh) win.webContents.once('did-finish-load', () => win.webContents.send('notebook:show-settings'));
+    else win.webContents.send('notebook:show-settings');
   }
 
   private setupNotchIpc(): void {
@@ -499,6 +487,9 @@ class MainProcess {
     ipcMain.handle('notebook:rename', (_e, id: string, title: string) => { this.notebookStore?.rename(id, title); });
     ipcMain.handle('notebook:pin', (_e, id: string, pinned: boolean) => { this.notebookStore?.setPinned(id, pinned); });
     ipcMain.handle('notebook:update-body', (_e, id: string, body: string) => { this.notebookStore?.updateBody(id, body); });
+    ipcMain.handle('notebook:hide', (_e, id: string) => { this.notebookStore?.hide(id); });
+    ipcMain.handle('notebook:restore', (_e, id: string) => { this.notebookStore?.restore(id); });
+    ipcMain.handle('notebook:delete', (_e, id: string) => { this.notebookStore?.delete(id); });
 
     ipcMain.handle('panel:screenshot', async () => {
       this.screenshotInFlight = true;

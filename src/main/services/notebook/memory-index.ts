@@ -57,6 +57,11 @@ export class MemoryNotebookIndex implements NotebookIndex {
     if (r) r.tombstoned = true;
   }
 
+  untombstone(id: string): void {
+    const r = this.rows.get(id);
+    if (r) r.tombstoned = false;
+  }
+
   search(query: string): SearchHit[] {
     const q = query.trim().toLowerCase();
     if (!q) return [];

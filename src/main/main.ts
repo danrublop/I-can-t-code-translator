@@ -19,6 +19,7 @@ import { AnthropicLlmClient } from './services/llm/anthropic-llm-client';
 import { MultiLlmClient, CLOUD_MODELS } from './services/llm/multi-llm-client';
 import { SettingsService, settingsPath } from './services/settings/settings-service';
 import { MarkdownStore } from './services/notebook/markdown-store';
+import { migrateHtmlBodies } from './services/notebook/migrate-html-bodies';
 import { NotebookStore } from './services/notebook/notebook-store';
 import { MemoryNotebookIndex } from './services/notebook/memory-index';
 import type { NotebookIndex } from './services/notebook/types';
@@ -84,7 +85,18 @@ class MainProcess {
   private setupNotch(): void {
     try {
       const userData = app.getPath('userData');
-      const files = new MarkdownStore(join(userData, 'notebook'));
+      const notebookDir = join(userData, 'notebook');
+
+      // One-time HTML→Markdown body migration (backup-first, idempotent). Runs BEFORE the
+      // index rebuild so reconcile re-indexes from migrated Markdown, not stale HTML.
+      try {
+        const res = migrateHtmlBodies(notebookDir);
+        if (!res.alreadyDone) console.log(`notebook migration: ${res.migrated} migrated, ${res.skipped} skipped, ${res.failed} failed`);
+      } catch (e) {
+        console.warn('notebook HTML→Markdown migration failed:', e);
+      }
+
+      const files = new MarkdownStore(notebookDir);
 
       let index: NotebookIndex;
       try {
@@ -434,9 +446,9 @@ class MainProcess {
           onToken: (delta) => session.emit(runId, 'notebook:token', delta),
         });
         session.emit(runId, 'notebook:done', result.answer);
-        session.emit(runId, 'notebook:saved', result.entry.id);
+        if (result.entry) session.emit(runId, 'notebook:saved', result.entry.id);
         if (req.autoOpen !== false) this.showNotebook(); // auto-open when done
-        return { ok: true, answer: result.answer, model: result.model, entryId: result.entry.id };
+        return { ok: true, answer: result.answer, model: result.model, entryId: result.entry?.id };
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Unknown error';
         // A cancelled run was superseded/closed deliberately — don't flash an error.
@@ -495,6 +507,44 @@ class MainProcess {
     // Renderer handshake: the notebook view has mounted and attached its notebook:* listeners.
     // Flush anything buffered while it was loading (fixes the first-answer-invisible drop).
     ipcMain.on('notebook:ready', () => this.streamSession?.markReady());
+
+    // Inline generation from the notebook itself: a `/` command (or freeform prompt) runs
+    // against a model and streams INTO a specific AI block in the open note. Distinct from
+    // panel:run-query — it does NOT create a new note (persist:false) and uses notebook:gen-*
+    // channels tagged with the target blockId so the renderer streams into the right block.
+    ipcMain.handle('notebook:generate', async (_event, req: {
+      blockId: string;
+      commandId?: string;        // built-in slash-command (preset) id
+      freeText?: string;         // custom prompt / typed follow-up
+      selection?: string;        // text the command operates on (may be empty for pure generate)
+      userSelectedModel?: string;
+    }) => {
+      if (!this.notchController || !this.streamSession) return { ok: false, error: 'Notebook generation not ready' };
+      const session = this.streamSession;
+      const { runId, signal } = session.beginRun();
+      const displayModel = req.userSelectedModel || DEFAULT_TEXT_MODEL;
+      session.emit(runId, 'notebook:gen-start', { blockId: req.blockId, model: displayModel });
+      try {
+        const result = await this.notchController.runQuery({
+          kind: 'text',
+          presetId: req.commandId, // built-in presets; custom user commands resolve once persisted in settings
+          freeText: req.freeText,
+          userSelectedModel: req.userSelectedModel,
+          capture: { text: req.selection ?? '', via: 'clipboard' },
+          persist: false, // the answer lives in a block inside the current note, not a new entry
+          signal,
+          onToken: (delta) => session.emit(runId, 'notebook:gen-token', { blockId: req.blockId, delta }),
+        });
+        session.emit(runId, 'notebook:gen-done', { blockId: req.blockId, answer: result.answer, model: result.model });
+        return { ok: true, model: result.model, answer: result.answer };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        if (message !== 'cancelled') session.emit(runId, 'notebook:gen-error', { blockId: req.blockId, message });
+        return { ok: false, error: message };
+      } finally {
+        session.endRun(runId);
+      }
+    });
 
     // Open the notebook window immediately (the panel's Open button) to watch streaming.
     ipcMain.on('open-notebook', () => this.showNotebook());

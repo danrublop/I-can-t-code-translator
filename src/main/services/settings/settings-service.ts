@@ -8,6 +8,9 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'fs';
 import { join, dirname } from 'path';
 import { safeStorage } from 'electron';
+import type { Preset } from '../presets/presets';
+import { BUILT_IN_PRESETS } from '../presets/presets';
+import { validateUserPreset } from '../presets/slash-commands';
 
 export interface AppSettings {
   openaiKey?: string;
@@ -16,6 +19,8 @@ export interface AppSettings {
   defaultTextModel?: string;
   /** User-chosen default model for image/vision queries (overrides the built-in default). */
   defaultVisionModel?: string;
+  /** User-defined slash commands (Exp-5). Stored plaintext (not secrets). */
+  customPresets?: Preset[];
 }
 
 export class SettingsService {
@@ -30,6 +35,7 @@ export class SettingsService {
           anthropicKey: decrypt(raw.anthropicKey),
           defaultTextModel: raw.defaultTextModel,
           defaultVisionModel: raw.defaultVisionModel,
+          customPresets: Array.isArray(raw.customPresets) ? raw.customPresets : [],
         };
         // Migrate any legacy plaintext keys to encrypted at rest, once.
         const hasLegacyPlaintext = [raw.openaiKey, raw.anthropicKey].some((v) => v && !v.startsWith('enc:'));
@@ -80,15 +86,41 @@ export class SettingsService {
     this.save();
   }
 
+  // ---- Custom slash commands (Exp-5) --------------------------------------------------
+
+  /** The user's saved custom slash commands. */
+  getCustomPresets(): Preset[] {
+    return [...(this.settings.customPresets ?? [])];
+  }
+
+  /** Validate + add a custom command. Returns an error string on rejection (id collision,
+   *  bad shape) and does NOT persist; on success it saves and returns ok. */
+  addCustomPreset(input: Partial<Preset>): { ok: true } | { ok: false; error: string } {
+    const existing = this.getCustomPresets();
+    const ids = new Set<string>([...BUILT_IN_PRESETS.map((p) => p.id), ...existing.map((p) => p.id)]);
+    const res = validateUserPreset(input, ids);
+    if (!res.ok) return res;
+    this.settings.customPresets = [...existing, res.preset];
+    this.save();
+    return { ok: true };
+  }
+
+  /** Remove a custom command by id (no-op if absent). */
+  removeCustomPreset(id: string): void {
+    this.settings.customPresets = this.getCustomPresets().filter((p) => p.id !== id);
+    this.save();
+  }
+
   private save(): void {
     try {
       if (!existsSync(dirname(this.file))) mkdirSync(dirname(this.file), { recursive: true });
-      // Encrypt keys before writing; model picks are not secrets, stored plaintext.
+      // Encrypt keys before writing; model picks + custom presets aren't secrets, plaintext.
       const onDisk: AppSettings = {
         openaiKey: encrypt(this.settings.openaiKey),
         anthropicKey: encrypt(this.settings.anthropicKey),
         defaultTextModel: this.settings.defaultTextModel,
         defaultVisionModel: this.settings.defaultVisionModel,
+        customPresets: this.settings.customPresets ?? [],
       };
       // Atomic write: a crash mid-write must not truncate the real file (which would
       // wipe the encrypted keys on next launch). Write a temp file then rename over.

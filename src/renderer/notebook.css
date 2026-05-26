@@ -160,3 +160,26 @@ body { font-family: var(--sans); color: var(--ink); background: var(--canvas); -
 .toast-undo { background: none; border: none; color: #e7b85e; font-weight: 600; font-size: 13px; cursor: pointer; padding: 4px 8px; border-radius: 7px; font-family: var(--sans); }
 .toast-undo:hover { background: rgba(255,255,255,0.10); }
 @keyframes toast-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+
+/* ---- TipTap notebook editor (NotebookEditor.tsx) — additive, graphite per design review ---- */
+.nb-editor { position: relative; }
+.nb-editor__content .ProseMirror { outline: none; line-height: 1.68; }
+.nb-editor__content .ProseMirror:focus { outline: none; }
+
+/* AI block: thin graphite left rule + a quiet model bar. */
+.ai-block { border-left: 2px solid #1A1A1A; padding: 2px 0 2px 14px; margin: 14px 0; }
+.ai-block--generating { border-left-color: #9a9a9a; }
+.ai-block--error { border-left-color: #b54a4a; }
+.ai-block__bar { display: flex; align-items: center; gap: 8px; font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: #6b6b6b; margin-bottom: 4px; user-select: none; }
+.ai-block__model { font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; }
+.ai-block__dot { width: 6px; height: 6px; border-radius: 50%; background: #1A1A1A; animation: ai-pulse 1s ease-in-out infinite; }
+.ai-block__err { color: #b54a4a; text-transform: none; letter-spacing: 0; }
+.ai-block__rerun { border: none; background: none; color: #6b6b6b; cursor: pointer; font: inherit; padding: 0; }
+.ai-block__rerun:hover { color: #1A1A1A; }
+@keyframes ai-pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+
+/* Slash command menu: tight monochrome text list, keyboard-first. */
+.slash-menu { z-index: 50; min-width: 200px; background: #fff; border: 1px solid #e3e3e3; border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,0.12); padding: 4px; max-height: 280px; overflow-y: auto; }
+.slash-item { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; border: none; background: none; padding: 7px 10px; border-radius: 6px; cursor: pointer; font: inherit; color: #1A1A1A; }
+.slash-item.is-active { background: #1A1A1A; color: #fff; }
+.slash-item__badge { margin-left: auto; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.6; }

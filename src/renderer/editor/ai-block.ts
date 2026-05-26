@@ -38,7 +38,20 @@ export const AiBlock = Node.create({
         parseHTML: (el) => (el as HTMLElement).getAttribute('data-model'),
         renderHTML: (attrs) => (attrs.model ? { 'data-model': attrs.model } : {}),
       },
+      // Re-run inputs — held in the live doc so re-run is self-contained; persisted to the
+      // sidecar on save (cross-session re-run). NONE are serialized to Markdown.
+      prompt: { default: null, rendered: false },     // resolved/display prompt
+      commandId: { default: null, rendered: false },  // slash command (preset) id, if any
+      selection: { default: null, rendered: false },  // the text the command ran on
+      // Transient generation state for the NodeView; never persisted.
+      state: { default: 'done', rendered: false },
     };
+  },
+
+  // The React editor sets onRerun here after construction; the NodeView calls it. Kept in
+  // storage (not options) so the headless serializer needs no React dependency.
+  addStorage() {
+    return { onRerun: null as ((blockId: string) => void) | null };
   },
 
   parseHTML() {

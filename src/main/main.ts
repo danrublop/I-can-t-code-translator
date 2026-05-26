@@ -15,6 +15,7 @@ import { AnthropicLlmClient } from './services/llm/anthropic-llm-client';
 import { MultiLlmClient, CLOUD_MODELS } from './services/llm/multi-llm-client';
 import { SettingsService, settingsPath } from './services/settings/settings-service';
 import { MarkdownStore } from './services/notebook/markdown-store';
+import { migrateHtmlBodies } from './services/notebook/migrate-html-bodies';
 import { NotebookStore } from './services/notebook/notebook-store';
 import { MemoryNotebookIndex } from './services/notebook/memory-index';
 import type { NotebookIndex } from './services/notebook/types';
@@ -77,7 +78,18 @@ class MainProcess {
   private setupNotch(): void {
     try {
       const userData = app.getPath('userData');
-      const files = new MarkdownStore(join(userData, 'notebook'));
+      const notebookDir = join(userData, 'notebook');
+
+      // One-time HTML→Markdown body migration (backup-first, idempotent). Runs BEFORE the
+      // index rebuild so reconcile re-indexes from migrated Markdown, not stale HTML.
+      try {
+        const res = migrateHtmlBodies(notebookDir);
+        if (!res.alreadyDone) console.log(`notebook migration: ${res.migrated} migrated, ${res.skipped} skipped, ${res.failed} failed`);
+      } catch (e) {
+        console.warn('notebook HTML→Markdown migration failed:', e);
+      }
+
+      const files = new MarkdownStore(notebookDir);
 
       let index: NotebookIndex;
       try {

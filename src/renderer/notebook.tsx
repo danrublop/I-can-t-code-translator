@@ -121,10 +121,18 @@ function Notebook() {
   const streamingRef = useRef(false);
   selectedRef.current = selectedId;
 
+  const recountTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const recountWords = useCallback(() => {
     const m = (editorRef.current?.textContent ?? '').trim().match(/\S+/g);
     setWords(m ? m.length : 0);
   }, []);
+  // Reading textContent + regex is O(n); calling it per streamed token is O(n²). Coalesce
+  // to a trailing 300ms recount during streaming. The exact count is recomputed on done
+  // (setEditor) and note selection, so the displayed number always settles correct.
+  const recountWordsThrottled = useCallback(() => {
+    if (recountTimer.current) return;
+    recountTimer.current = setTimeout(() => { recountTimer.current = null; recountWords(); }, 300);
+  }, [recountWords]);
 
   // Reflect the formatting at the caret so toolbar buttons can show an active state.
   const updateFmt = useCallback(() => {
@@ -139,11 +147,12 @@ function Notebook() {
 
   // Plain text into the editor (used while streaming).
   const setEditor = (text: string) => { if (editorRef.current) editorRef.current.textContent = text; recountWords(); };
-  // Append a streamed delta chunk without re-writing the whole buffer (O(1) per token).
+  // Append a streamed delta chunk without re-writing the whole buffer (O(1) DOM append).
+  // Word recount is throttled so streaming stays O(1) amortized per token, not O(n²).
   const appendEditor = (delta: string) => {
     if (!editorRef.current) return;
     editorRef.current.appendChild(document.createTextNode(delta));
-    recountWords();
+    recountWordsThrottled();
   };
   // Render a stored body as sanitized HTML so rich formatting (bold/italic/headings)
   // persists. DOMPurify guards against injected markup from captured text / model output;

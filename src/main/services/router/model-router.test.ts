@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { routeModel, isVisionCapable, type RouterConfig } from './model-router';
+import { CLOUD_MODELS } from '../llm/multi-llm-client';
 import type { Preset } from '../presets/presets';
 
 const config: RouterConfig = { defaultTextModel: 'llama3.2', visionModel: 'llava' };
@@ -65,5 +66,14 @@ describe('isVisionCapable', () => {
     expect(isVisionCapable('mistral:latest')).toBe(false);
     expect(isVisionCapable('qwen2.5-coder')).toBe(false);
     expect(isVisionCapable(undefined)).toBe(false);
+  });
+
+  // Drift guard: the cloud-vision allow-list in model-router duplicates the cloud model
+  // catalog in multi-llm-client. Every offered cloud model today is vision-capable; adding
+  // a new cloud model without classifying it here fails this test.
+  it('classifies every offered cloud model (catches CLOUD_MODELS/CLOUD_VISION drift)', () => {
+    for (const id of [...CLOUD_MODELS.openai, ...CLOUD_MODELS.anthropic]) {
+      expect(isVisionCapable(id)).toBe(true);
+    }
   });
 });

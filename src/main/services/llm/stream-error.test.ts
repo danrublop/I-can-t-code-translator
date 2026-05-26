@@ -21,6 +21,10 @@ describe('extractMessage', () => {
     expect(extractMessage(raw)).toBe('a'.repeat(200));
   });
 
+  it('falls back to raw when JSON parses but has no message (e.g. {error:{code}})', () => {
+    expect(extractMessage('{"error":{"code":429}}')).toBe('{"error":{"code":429}}');
+  });
+
   it('returns empty string for empty input', () => {
     expect(extractMessage('')).toBe('');
     expect(extractMessage('   ')).toBe('');

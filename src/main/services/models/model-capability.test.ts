@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { fitFor, ramRequiredBytes, fitLabel, MODEL_CATALOG } from './model-capability';
+import { fitFor, ramRequiredBytes, MODEL_CATALOG } from './model-capability';
 
 const GB = 1024 ** 3;
 
@@ -48,13 +48,14 @@ describe('fitFor', () => {
   it("returns won't-fit when usable RAM is effectively zero", () => {
     expect(fitFor({ modelBytes: 1 * GB, totalRamBytes: 1 * GB })).toBe('wont-fit');
   });
-});
 
-describe('fitLabel', () => {
-  it('maps every fit to a non-empty label', () => {
-    expect(fitLabel('comfortable')).toBeTruthy();
-    expect(fitLabel('tight')).toBeTruthy();
-    expect(fitLabel('wont-fit')).toBeTruthy();
+  it('classifies just inside each tier band (16GB: usable 12GB, 70%=8.4GB)', () => {
+    // Test with clear margin either side of the boundaries — an exact float-boundary
+    // assertion is itself imprecise (1.2/0.7 aren't binary-exact), so we pin behavior
+    // just inside each band instead.
+    expect(fitFor({ modelBytes: 6.5 * GB, totalRamBytes: 16 * GB })).toBe('comfortable'); // req 7.8 < 8.4
+    expect(fitFor({ modelBytes: 7.5 * GB, totalRamBytes: 16 * GB })).toBe('tight');        // req 9.0 in (8.4,12]
+    expect(fitFor({ modelBytes: 10.5 * GB, totalRamBytes: 16 * GB })).toBe('wont-fit');     // req 12.6 > 12
   });
 });
 

@@ -1,6 +1,8 @@
 // Preload for the notebook window. Receives streaming answers from the main process.
 
 import { contextBridge, ipcRenderer } from 'electron';
+import type { ModelFit, DetailedModel, CatalogEntry, ModelsList } from './shared/model-types';
+export type { ModelFit, DetailedModel, CatalogEntry, ModelsList };
 
 export interface NotebookMeta {
   prompt: string;        // action label (Explain / Debug / …) or freeform question
@@ -82,31 +84,6 @@ export type NotebookAPI = typeof api;
 
 // Settings now lives in the notebook's right pane (no separate window), so the
 // notebook window needs the same settings bridge the standalone settings window has.
-export type ModelFit = 'comfortable' | 'tight' | 'wont-fit' | 'cloud';
-export interface DetailedModel {
-  id: string;
-  provider: 'ollama' | 'cloud';
-  sizeBytes: number;
-  vision: boolean;
-  installed: boolean;
-  fit: ModelFit;
-}
-export interface CatalogEntry {
-  id: string;
-  label: string;
-  sizeBytes: number;
-  vision: boolean;
-  note: string;
-  installed: boolean;
-  fit: ModelFit;
-}
-export interface ModelsList {
-  totalRamBytes: number;
-  models: DetailedModel[];
-  defaultTextModel: string;
-  defaultVisionModel: string;
-}
-
 const settingsApi = {
   get: (): Promise<{ openaiKeySet: boolean; anthropicKeySet: boolean; defaultTextModel?: string; defaultVisionModel?: string }> => ipcRenderer.invoke('settings:get'),
   setKey: (provider: 'openai' | 'anthropic', key: string): Promise<void> => ipcRenderer.invoke('settings:set-key', provider, key),

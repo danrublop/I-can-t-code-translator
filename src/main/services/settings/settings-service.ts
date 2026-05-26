@@ -5,7 +5,7 @@
 // are plaintext for use by the LLM clients. If encryption is unavailable (rare), we fall
 // back to plaintext and migrate to encrypted on the next save.
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'fs';
 import { join, dirname } from 'path';
 import { safeStorage } from 'electron';
 
@@ -35,8 +35,19 @@ export class SettingsService {
         const hasLegacyPlaintext = [raw.openaiKey, raw.anthropicKey].some((v) => v && !v.startsWith('enc:'));
         if (hasLegacyPlaintext) this.save();
       }
-    } catch {
+    } catch (e) {
+      // A corrupt/truncated settings file would otherwise silently wipe the user's
+      // encrypted API keys. Preserve the bad file for recovery and log loudly instead.
       this.settings = {};
+      try {
+        if (existsSync(file)) {
+          const backup = `${file}.corrupt-${Date.now()}`;
+          renameSync(file, backup);
+          console.error(`Settings file was unreadable; backed up to ${backup}. Re-enter API keys in Settings.`, e);
+        }
+      } catch (e2) {
+        console.error('Settings file unreadable and could not be backed up:', e2);
+      }
     }
   }
 
@@ -79,7 +90,11 @@ export class SettingsService {
         defaultTextModel: this.settings.defaultTextModel,
         defaultVisionModel: this.settings.defaultVisionModel,
       };
-      writeFileSync(this.file, JSON.stringify(onDisk, null, 2), 'utf8');
+      // Atomic write: a crash mid-write must not truncate the real file (which would
+      // wipe the encrypted keys on next launch). Write a temp file then rename over.
+      const tmp = `${this.file}.tmp`;
+      writeFileSync(tmp, JSON.stringify(onDisk, null, 2), 'utf8');
+      renameSync(tmp, this.file);
     } catch (e) {
       console.error('Failed to save settings:', e);
     }

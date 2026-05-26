@@ -45,6 +45,10 @@ const api = {
   ocrCapture: (): Promise<{ text: string; cancelled?: boolean; error?: string }> => ipcRenderer.invoke('panel:ocr'),
   /** List installed local models for the picker. */
   listModels: (): Promise<string[]> => ipcRenderer.invoke('panel:models'),
+  /** The user's saved default models (set on the Models page). */
+  getDefaults: (): Promise<{ text?: string; vision?: string }> => ipcRenderer.invoke('panel:defaults'),
+  /** Persist the panel's model pick as the default so the Models page stays in sync. */
+  setDefaultModel: (kind: 'text' | 'vision', model: string): Promise<void> => ipcRenderer.invoke('models:set-default', kind, model),
   /** Open a native file picker; returns the chosen files' paths + display names. */
   pickFiles: (): Promise<Array<{ path: string; name: string }>> => ipcRenderer.invoke('panel:pick-files'),
   /** Open the notebook window now (watch the answer stream in). */

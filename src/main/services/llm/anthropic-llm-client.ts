@@ -58,7 +58,7 @@ export class AnthropicLlmClient implements LlmClient {
           }
         });
         res.data.on('end', () => resolve(full));
-        res.data.on('error', (e: Error) => reject(new Error(`Anthropic stream error: ${e.message}`)));
+        res.data.on('error', (e: Error) => reject(opts.signal?.aborted ? new Error('cancelled') : new Error(`Anthropic stream error: ${e.message}`)));
       });
     } catch (error) {
       if (axios.isCancel(error)) throw new Error('cancelled');

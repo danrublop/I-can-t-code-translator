@@ -440,7 +440,10 @@ class MainProcess {
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Unknown error';
         // A cancelled run was superseded/closed deliberately — don't flash an error.
-        if (message !== 'cancelled') {
+        // Match the explicit 'cancelled' marker AND any stream-level cancel that landed
+        // after the signal aborted (axios surfaces those as "...stream error: canceled").
+        const wasCancelled = message === 'cancelled' || signal.aborted || /cancell?ed/i.test(message);
+        if (!wasCancelled) {
           session.emit(runId, 'notebook:error', message);
           if (req.autoOpen !== false) this.showNotebook();
         }
@@ -481,6 +484,12 @@ class MainProcess {
         this.promptAccessibility();
         return { selection: '', sourceApp: undefined, empty: true, error: e instanceof Error ? e.message : 'capture failed' };
       }
+    });
+
+    // The panel's saved default models (so its picker reflects the Models-page choice).
+    ipcMain.handle('panel:defaults', () => {
+      const s = this.settingsService?.get() ?? {};
+      return { text: s.defaultTextModel, vision: s.defaultVisionModel };
     });
 
     // Renderer handshake: the notebook view has mounted and attached its notebook:* listeners.
@@ -542,6 +551,7 @@ class MainProcess {
     ipcMain.handle('notebook:delete', (_e, id: string) => { this.notebookStore?.delete(id); });
 
     ipcMain.handle('panel:screenshot', async () => {
+      if (this.screenshotInFlight) return null; // a capture is already up — don't overlap crosshairs
       this.screenshotInFlight = true;
       try {
         const { path } = await captureRegion();
@@ -561,6 +571,7 @@ class MainProcess {
     // Grab text from a screen region with NO model: screencapture -i, then on-device
     // Vision OCR. Sidesteps vision-model RAM cost entirely. Returns recognized text.
     ipcMain.handle('panel:ocr', async () => {
+      if (this.screenshotInFlight) return { text: '', cancelled: true }; // capture already in flight
       this.screenshotInFlight = true;
       let shot: string | null = null;
       try {
@@ -614,9 +625,13 @@ class MainProcess {
     ipcMain.handle('models:catalog', async () => {
       const totalRam = totalmem();
       const installedNames = new Set(this.llmClient ? (await this.llmClient.listModels()) : []);
+      // Ollama lists a bare `moondream` pull as `moondream:latest`, so a catalog id
+      // without a tag must also match its `:latest` form — otherwise an installed model
+      // keeps showing "Install".
+      const isInstalled = (id: string) => installedNames.has(id) || (!id.includes(':') && installedNames.has(`${id}:latest`));
       return MODEL_CATALOG.map((m) => ({
         ...m,
-        installed: installedNames.has(m.id),
+        installed: isInstalled(m.id),
         fit: fitFor({ modelBytes: m.sizeBytes, totalRamBytes: totalRam, isVision: m.vision }),
       }));
     });

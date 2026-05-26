@@ -24,7 +24,13 @@ export interface ScreenshotResult {
  */
 export async function captureRegion(): Promise<ScreenshotResult> {
   const out = join(tmpdir(), `notch-shot-${Date.now()}.png`);
-  await run('screencapture', ['-i', '-r', '-x', out], { timeout: 120000 });
+  try {
+    await run('screencapture', ['-i', '-r', '-x', out], { timeout: 120000 });
+  } catch (e) {
+    // Timeout / screencapture error: don't leak a partial file in tmpdir.
+    if (existsSync(out)) { try { rmSync(out); } catch { /* ignore */ } }
+    throw e;
+  }
   if (existsSync(out) && statSync(out).size > 0) {
     return { path: out };
   }

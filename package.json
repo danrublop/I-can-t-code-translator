@@ -10,7 +10,7 @@
     "watch:renderer": "webpack --mode development --watch",
     "build:renderer": "tsc -p tsconfig.renderer.json && webpack --mode development",
     "build:main": "tsc -p tsconfig.main.json",
-    "build:ocr": "swiftc -O build-resources/ocr.swift -o build-resources/ocr",
+    "build:ocr": "swiftc -O -target arm64-apple-macos11 build-resources/ocr.swift -o build-resources/.ocr-arm64 && swiftc -O -target x86_64-apple-macos11 build-resources/ocr.swift -o build-resources/.ocr-x64 && lipo -create build-resources/.ocr-arm64 build-resources/.ocr-x64 -output build-resources/ocr && rm -f build-resources/.ocr-arm64 build-resources/.ocr-x64",
     "build": "npm run build:ocr && npm run build:main && npm run build:renderer",
     "build:prod": "npm run build:ocr && npm run build:main && npm run build:renderer:prod",
     "build:renderer:prod": "tsc -p tsconfig.renderer.json && webpack --config webpack.prod.config.js",

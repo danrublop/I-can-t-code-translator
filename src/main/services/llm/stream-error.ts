@@ -15,16 +15,19 @@ export async function readStreamErrorMessage(stream: unknown): Promise<string> {
     let data = '';
     let settled = false;
     const s = stream as NodeJS.ReadableStream;
+    // Guard against a stream that never ends (don't hang the error path); cleared on settle
+    // so a fast normal end doesn't leave a dangling 2s timer holding the event loop.
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const finish = () => {
       if (settled) return;
       settled = true;
+      if (timer) clearTimeout(timer);
       resolve(extractMessage(data));
     };
     s.on('data', (c: Buffer) => { data += c.toString(); });
     s.on('end', finish);
-    s.on('error', () => { if (!settled) { settled = true; resolve(''); } });
-    // Guard against a stream that never ends (don't hang the error path).
-    setTimeout(finish, 2000);
+    s.on('error', () => { if (!settled) { settled = true; if (timer) clearTimeout(timer); resolve(''); } });
+    timer = setTimeout(finish, 2000);
   });
 }
 

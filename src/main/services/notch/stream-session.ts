@@ -97,8 +97,4 @@ export class StreamSession {
     this.currentRunId = null;
     this.queue = this.queue.filter((e) => e.runId !== aborted);
   }
-
-  get isReady(): boolean {
-    return this.ready;
-  }
 }

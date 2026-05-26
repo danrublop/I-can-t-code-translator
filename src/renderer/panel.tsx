@@ -33,6 +33,8 @@ interface LlamasAPI {
   captureScreenshot: () => Promise<string | null>;
   ocrCapture: () => Promise<{ text: string; cancelled?: boolean; error?: string }>;
   listModels: () => Promise<string[]>;
+  getDefaults: () => Promise<{ text?: string; vision?: string }>;
+  setDefaultModel: (kind: 'text' | 'vision', model: string) => Promise<void>;
   openNotebook: () => void;
   openSettings: () => void;
   pickFiles: () => Promise<Array<{ path: string; name: string }>>;
@@ -85,7 +87,10 @@ function Panel() {
   const [freeText, setFreeText] = useState('');
   const [attachments, setAttachments] = useState<Array<{ path: string; name: string }>>([]);
   const [models, setModels] = useState<string[]>([]);
+  // `model` is the user's EXPLICIT panel pick (empty = "use the saved default"). When empty
+  // we don't send userSelectedModel, so routing falls to the Models-page default.
   const [model, setModel] = useState(localStorage.getItem('lr-model') || '');
+  const [defaultModel, setDefaultModelState] = useState('');
   const [modelOpen, setModelOpen] = useState(false);
   const [typing, setTyping] = useState(false);
   const typeInputRef = useRef<HTMLInputElement>(null);
@@ -98,8 +103,12 @@ function Panel() {
   const refreshModels = useCallback(() => {
     window.llamasAPI.listModels().then((m) => {
       setModels(m);
-      setModel((cur) => (cur && m.includes(cur)) ? cur : (m[0] ?? cur));
+      // Drop a stale explicit pick (model since uninstalled); do NOT auto-select the first
+      // model, so an empty pick lets the saved default drive routing.
+      setModel((cur) => (cur && m.includes(cur)) ? cur : '');
     }).catch(() => {});
+    // Pull the saved default so the picker can show it when there's no explicit pick.
+    window.llamasAPI.getDefaults().then((d) => setDefaultModelState(d.text || '')).catch(() => {});
   }, []);
 
   const expandedRef = useRef(false);
@@ -244,6 +253,10 @@ function Panel() {
     if (collapseTimer.current) { clearTimeout(collapseTimer.current); collapseTimer.current = null; }
   }
 
+  // What to SHOW in the picker: the explicit pick, else the saved default. Routing uses
+  // `model || undefined` (so an empty pick defers to the default), but the UI shows the
+  // model that will actually answer.
+  const effectiveModel = model || defaultModel;
   const hasSelection = selection.trim().length > 0;
   const selChars = selection.trim().length;
   // % of a rough context budget (~8000 chars) the selection fills; min 1% when non-empty.
@@ -267,7 +280,7 @@ function Panel() {
         {/* Collapsed: current model logo (left); right shows a context counter of the
             queued selection (chars), else the idle waveform (notch sits between). */}
         <div className="collapsed">
-          <span className="c-left">{model ? <BrandIcon model={model} size={16} /> : <span className="dot" />}</span>
+          <span className="c-left">{effectiveModel ? <BrandIcon model={effectiveModel} size={16} /> : <span className="dot" />}</span>
           <span className="c-right">
             <CircleMeter pct={ctxPct} />
           </span>
@@ -278,8 +291,8 @@ function Panel() {
           <div className="hdr">
             <div className="model-picker" ref={modelPickerRef}>
               <button className="model-btn" onClick={() => setModelOpen((v) => !v)} title="Choose model">
-                {model ? <BrandIcon model={model} size={17} /> : <span className="dot" />}
-                <span className="model-chip">{model || 'default model'}</span>
+                {effectiveModel ? <BrandIcon model={effectiveModel} size={17} /> : <span className="dot" />}
+                <span className="model-chip">{effectiveModel || 'default model'}</span>
               </button>
               {modelOpen && (
                 <div className="model-menu">
@@ -287,8 +300,14 @@ function Panel() {
                   {models.map((m) => (
                     <button
                       key={m}
-                      className={`model-opt${m === model ? ' on' : ''}`}
-                      onClick={() => { setModel(m); localStorage.setItem('lr-model', m); setModelOpen(false); }}
+                      className={`model-opt${m === effectiveModel ? ' on' : ''}`}
+                      // Picking in the panel also saves it as the default, so the Models page
+                      // and the panel agree on which model answers.
+                      onClick={() => {
+                        setModel(m); localStorage.setItem('lr-model', m);
+                        setDefaultModelState(m); window.llamasAPI.setDefaultModel('text', m);
+                        setModelOpen(false);
+                      }}
                     >
                       <BrandIcon model={m} size={15} />
                       <span className="model-name">{m}</span>

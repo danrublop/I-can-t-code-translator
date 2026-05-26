@@ -1,30 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import './settings.css';
-
-export type ModelFit = 'comfortable' | 'tight' | 'wont-fit' | 'cloud';
-export interface DetailedModel {
-  id: string;
-  provider: 'ollama' | 'cloud';
-  sizeBytes: number;
-  vision: boolean;
-  installed: boolean;
-  fit: ModelFit;
-}
-export interface CatalogEntry {
-  id: string;
-  label: string;
-  sizeBytes: number;
-  vision: boolean;
-  note: string;
-  installed: boolean;
-  fit: ModelFit;
-}
-export interface ModelsList {
-  totalRamBytes: number;
-  models: DetailedModel[];
-  defaultTextModel: string;
-  defaultVisionModel: string;
-}
+// Shared IPC DTOs (single definition under src/main/shared; type-only import, erased at
+// build time so the renderer gains no runtime dependency on main).
+import type { ModelFit, DetailedModel, CatalogEntry, ModelsList } from '../main/shared/model-types';
+export type { ModelFit, DetailedModel, CatalogEntry, ModelsList };
 
 interface SettingsAPI {
   get: () => Promise<{ openaiKeySet: boolean; anthropicKeySet: boolean; defaultTextModel?: string; defaultVisionModel?: string }>;

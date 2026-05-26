@@ -114,7 +114,7 @@ export class OllamaLlmClient implements LlmClient {
           if (full) resolve(full);
           else reject(new Error('No response received from Ollama'));
         });
-        response.data.on('error', (err: Error) => reject(new Error(`Ollama stream error: ${err.message}`)));
+        response.data.on('error', (err: Error) => reject(opts.signal?.aborted ? new Error('cancelled') : new Error(`Ollama stream error: ${err.message}`)));
       });
     } catch (error) {
       if (axios.isCancel(error)) throw new Error('cancelled');

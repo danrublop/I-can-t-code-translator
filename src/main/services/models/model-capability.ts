@@ -21,7 +21,8 @@
 //
 // Pure module: RAM is passed in, so it's unit-tested without touching the OS.
 
-export type Fit = 'comfortable' | 'tight' | 'wont-fit';
+import type { Fit } from '../../shared/model-types';
+export type { Fit };
 
 const GB = 1024 ** 3;
 const MIN_RESERVE_BYTES = 2 * GB;
@@ -52,15 +53,6 @@ export function fitFor({ modelBytes, totalRamBytes, isVision = false }: FitInput
   if (required <= usable * 0.7) return 'comfortable';
   if (required <= usable) return 'tight';
   return 'wont-fit';
-}
-
-/** Human-friendly one-liner for a fit result. */
-export function fitLabel(fit: Fit): string {
-  switch (fit) {
-    case 'comfortable': return 'Runs comfortably';
-    case 'tight': return 'Runs, but tight on RAM';
-    case 'wont-fit': return "Won't fit in RAM";
-  }
 }
 
 export interface CatalogModel {

@@ -25,7 +25,8 @@
     "src/main/preload-panel.ts",
     "src/main/preload-notebook.ts",
     "src/main/preload-settings.ts",
-    "src/main/services/**/*"
+    "src/main/services/**/*",
+    "src/main/shared/**/*"
   ],
   "exclude": [
     "node_modules",

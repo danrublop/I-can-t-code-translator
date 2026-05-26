@@ -17,7 +17,7 @@
 //                                                      └─no──▶ leave as-is (notch text/MD)
 //                       ─▶ write marker
 
-import { readdirSync, readFileSync, writeFileSync, copyFileSync, existsSync, mkdirSync } from 'fs';
+import { readdirSync, readFileSync, writeFileSync, copyFileSync, existsSync, mkdirSync, renameSync } from 'fs';
 import { join } from 'path';
 import { parseEntry, serializeEntry } from './markdown-store';
 import { htmlToMarkdown, looksLikeHtml } from './html-to-markdown';
@@ -77,7 +77,10 @@ export function migrateHtmlBodies(dir: string, deps: MigrationDeps = {}): Migrat
       if (!existsSync(backupDir)) mkdirSync(backupDir, { recursive: true });
       copyFileSync(full, join(backupDir, file));
       const migrated = { ...entry, body: htmlToMarkdown(entry.body) };
-      writeFileSync(full, serializeEntry(migrated), 'utf8');
+      // Atomic write (temp + rename) — a crash mid-write must not truncate the user's note.
+      const tmp = `${full}.tmp`;
+      writeFileSync(tmp, serializeEntry(migrated), 'utf8');
+      renameSync(tmp, full);
       result.migrated++;
     } catch (err) {
       result.failed++;
@@ -85,10 +88,13 @@ export function migrateHtmlBodies(dir: string, deps: MigrationDeps = {}): Migrat
     }
   }
 
-  // Mark done even if some files failed: a failed file keeps its backup and its original
-  // HTML body, so re-running wouldn't help — but a healthy launch shouldn't retry forever.
-  // The marker records that the one-time pass ran.
-  writeFileSync(join(dir, MARKER), new Date().toISOString(), 'utf8');
+  // Only stamp the marker when every file succeeded. A transient failure (EACCES, disk
+  // full) leaves the marker unset so the next launch retries the abandoned files (they
+  // still hold their original HTML body + a backup). A clean pass marks done so a healthy
+  // launch never retries.
+  if (result.failed === 0) {
+    writeFileSync(join(dir, MARKER), new Date().toISOString(), 'utf8');
+  }
   log('info', `migrate: ${result.migrated} migrated, ${result.skipped} skipped, ${result.failed} failed`);
   return result;
 }

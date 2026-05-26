@@ -95,7 +95,14 @@ function block(node: Node, out: string[]): void {
     case 'h2': out.push(`## ${inline(el).trim()}`, ''); break;
     case 'h3': out.push(`### ${inline(el).trim()}`, ''); break;
     case 'blockquote': out.push(`> ${inline(el).trim()}`, ''); break;
-    case 'pre': out.push('```', decodeEntities(el.text).replace(/\n+$/, ''), '```', ''); break;
+    case 'pre': {
+      // Fence must be longer than any backtick run inside, or the block ends early.
+      const code = decodeEntities(el.text).replace(/\n+$/, '');
+      const longestRun = (code.match(/`+/g) ?? []).reduce((m, r) => Math.max(m, r.length), 0);
+      const fence = '`'.repeat(Math.max(3, longestRun + 1));
+      out.push(fence, code, fence, '');
+      break;
+    }
     case 'ul': out.push(...listItems(el, false), ''); break;
     case 'ol': out.push(...listItems(el, true), ''); break;
     case 'hr': out.push('---', ''); break;
@@ -124,11 +131,17 @@ export function htmlToMarkdown(html: string): string {
 }
 
 /**
- * Heuristic: does this body actually contain HTML markup that needs converting?
- * Notch-saved entries store the model's raw text/Markdown (no tags) and must be left
- * untouched; only contentEditable-saved entries hold HTML. We treat the presence of a
- * known block/inline tag as the signal. Conservative: anything ambiguous is left as-is.
+ * Heuristic: is this body actually an HTML-bodied note that needs converting?
+ *
+ * CRITICAL distinction: notch-saved entries store the model's raw Markdown answer, which
+ * routinely *mentions* tags in prose or code ("wrap it in a `<div>`", "the `<a>` tag").
+ * Those must NOT be migrated — converting them flattens real Markdown. Only the old
+ * contentEditable editor saved HTML, and `DOMPurify.sanitize(contentEditable)` ALWAYS
+ * produces a body that STARTS with a block-level element. So we anchor on that: the body,
+ * once trimmed and with any leading fenced code stripped, must BEGIN with a block tag.
+ * A Markdown body starts with text, `#`, `-`, `>`, a digit, a fence, etc. — never `<p>`.
  */
 export function looksLikeHtml(body: string): boolean {
-  return /<(p|div|h[1-3]|ul|ol|li|blockquote|pre|code|strong|em|b|i|a|br|hr)(\s[^>]*)?>/i.test(body);
+  const trimmed = body.replace(/^﻿/, '').trimStart();
+  return /^<(p|div|h[1-6]|ul|ol|blockquote|pre|table|section|article)\b[^>]*>/i.test(trimmed);
 }

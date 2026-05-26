@@ -40,6 +40,16 @@ describe('migrateHtmlBodies', () => {
     expect(readBody('b')).toBe('# Already markdown\n\n- a\n- b');
   });
 
+  // Regression (review finding #1): a notch answer is Markdown that mentions a tag; it must
+  // survive the migration byte-for-byte, never get flattened through htmlToMarkdown.
+  it('does NOT rewrite a notch Markdown body that merely mentions an HTML tag', () => {
+    const body = 'To center it, wrap the text in a `<div>` and add `<br>` between lines.';
+    write(entry({ id: 'notch1', body }));
+    const res = migrateHtmlBodies(dir);
+    expect(res.migrated).toBe(0);
+    expect(readBody('notch1')).toBe(body); // untouched
+  });
+
   it('is idempotent: a second run does nothing', () => {
     write(entry({ id: 'c', body: '<p>convert me</p>' }));
     const first = migrateHtmlBodies(dir);

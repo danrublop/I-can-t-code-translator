@@ -29,6 +29,14 @@ describe('htmlToMarkdown', () => {
     expect(htmlToMarkdown('<pre>const x = 1;\nconst y = 2;</pre>')).toBe('```\nconst x = 1;\nconst y = 2;\n```');
   });
 
+  it('escalates the code fence when the content contains a backtick run (no early break)', () => {
+    const md = htmlToMarkdown('<pre>const s = `a ${b}`;\n```fenced inside```</pre>');
+    // outer fence must be longer than the 3-backtick run inside
+    expect(md.startsWith('````')).toBe(true);
+    expect(md).toContain('```fenced inside```');
+    expect(md.trimEnd().endsWith('````')).toBe(true);
+  });
+
   it('decodes HTML entities in text', () => {
     expect(htmlToMarkdown('<p>a &amp; b &lt; c</p>')).toBe('a & b < c');
   });
@@ -50,13 +58,23 @@ describe('htmlToMarkdown', () => {
 describe('looksLikeHtml', () => {
   it('detects HTML-bodied content', () => {
     expect(looksLikeHtml('<p>hi</p>')).toBe(true);
-    expect(looksLikeHtml('text with <strong>bold</strong>')).toBe(true);
     expect(looksLikeHtml('<ul><li>x</li></ul>')).toBe(true);
+    expect(looksLikeHtml('  \n<div>wrapped</div>')).toBe(true); // leading whitespace ok
+    expect(looksLikeHtml('<h2>Heading</h2><p>body</p>')).toBe(true);
   });
 
   it('leaves plain text / markdown untouched (notch-saved bodies)', () => {
     expect(looksLikeHtml('Just a plain answer from the model.')).toBe(false);
     expect(looksLikeHtml('# A markdown heading\n\n- a list item')).toBe(false);
     expect(looksLikeHtml('Use a < b to compare')).toBe(false); // bare < is not a tag
+  });
+
+  // Regression (review finding #1): notch answers are Markdown that frequently MENTIONS
+  // tags in prose or code. Migrating those flattens real Markdown — they must be skipped.
+  it('does NOT flag Markdown bodies that merely mention HTML tags', () => {
+    expect(looksLikeHtml('Wrap the text in a `<div>` element for layout.')).toBe(false);
+    expect(looksLikeHtml('The `<a>` tag needs an href. Use `<br>` for line breaks.')).toBe(false);
+    expect(looksLikeHtml('# Notes\n\nUse a <section> to group content.')).toBe(false);
+    expect(looksLikeHtml('```html\n<p>example in a code block</p>\n```')).toBe(false);
   });
 });

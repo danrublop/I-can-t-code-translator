@@ -62,12 +62,16 @@ export const AiBlock = Node.create({
     return ['div', mergeAttributes(HTMLAttributes, { 'data-ai-block': '' }), 0];
   },
 
-  // Markdown serialization: invisible anchor + the block's inner Markdown. The anchor is
-  // on its own line so it round-trips as a standalone HTML comment, invisible in any
-  // rendered Markdown viewer while still binding the block to its sidecar metadata.
+  // Markdown serialization: an invisible HTML-comment PAIR wrapping the block's inner
+  // Markdown. The pair gives a parseable boundary (an open comment alone is dropped by the
+  // markdown parser with no way to know where the block ends), while staying invisible in
+  // any rendered Markdown viewer. The open marker carries the blockId that keys the sidecar.
+  // Reconstruction (markdown -> AiBlock) is done from the raw text by markdownToDoc()
+  // (reconstruct.ts), since the parser strips comments. If the markers are lost (external
+  // edit), the inner Markdown simply renders as plain prose — graceful degradation.
   renderMarkdown(node: { attrs?: { blockId?: string | null } }, helpers: { renderChildren: (n: unknown) => string }) {
     const id = node.attrs?.blockId ?? '';
     const inner = helpers.renderChildren(node).trim();
-    return `<!--ai:${id}-->\n${inner}`;
+    return `<!--ai:${id}-->\n${inner}\n<!--/ai-->`;
   },
 } as Parameters<typeof Node.create>[0]);

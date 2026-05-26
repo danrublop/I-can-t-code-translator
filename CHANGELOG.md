@@ -3,6 +3,14 @@
 All notable changes to Llamas Remote are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.3.0] - 2026-05-26
+
+### Changed
+- Notebook notes now store their body as **Markdown** instead of HTML, so the files in your notebook folder stay clean and open correctly in any Markdown editor. Existing notes are converted automatically on first launch, and the original of every converted note is kept in a `.pre-md-backup` folder just in case.
+
+### Added
+- Groundwork for inline AI in the notebook (a block editor, a `/` command catalog including your own custom commands, and a notebook-to-model streaming path). Not switched on in the editor yet — it lands in a follow-up release.
+
 ## [1.2.0] - 2026-05-26
 
 ### Added

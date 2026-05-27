@@ -18,7 +18,7 @@ import { OpenAiLlmClient } from './services/llm/openai-llm-client';
 import { AnthropicLlmClient } from './services/llm/anthropic-llm-client';
 import { MultiLlmClient, CLOUD_MODELS } from './services/llm/multi-llm-client';
 import { SettingsService, settingsPath } from './services/settings/settings-service';
-import { MarkdownStore } from './services/notebook/markdown-store';
+import { MarkdownStore, isValidEntryId } from './services/notebook/markdown-store';
 import { migrateHtmlBodies } from './services/notebook/migrate-html-bodies';
 import { NotebookStore } from './services/notebook/notebook-store';
 import { MemoryNotebookIndex } from './services/notebook/memory-index';
@@ -45,6 +45,12 @@ class MainProcess {
   private accessibilityPrompted = false;
   private screenshotInFlight = false;
   private tray: Tray | null = null;
+  // Allowlists of renderer-usable file paths. The renderer can't be trusted to send arbitrary
+  // absolute paths (it would let a compromised renderer read e.g. ~/.ssh/id_rsa into a prompt,
+  // or rm an arbitrary file): a path is only honored if the app itself produced it — attachments
+  // chosen via the native picker, screenshots written by our own capture.
+  private readonly allowedAttachmentPaths = new Set<string>();
+  private readonly allowedImagePaths = new Set<string>();
 
   private ollamaProcessService = new OllamaProcessService();
   private notchController: NotchController | null = null;
@@ -149,6 +155,27 @@ class MainProcess {
     }
   }
 
+  // Lock down a window's navigation surface. The renderer displays model- and
+  // clipboard-sourced content, so we never let it navigate away from the bundled app page
+  // (which would hand an attacker-controlled origin the preload IPC bridge) and we route
+  // any link/window.open to the user's real browser instead of opening it in-app.
+  private hardenWindow(win: BrowserWindow): void {
+    const wc = win.webContents;
+    wc.setWindowOpenHandler(({ url }) => {
+      if (/^https?:\/\//i.test(url)) shell.openExternal(url).catch(() => {});
+      return { action: 'deny' };
+    });
+    const guard = (e: Electron.Event, url: string): void => {
+      // Allow only in-app navigation/reload of the bundled file:// page; externalize web
+      // links, block everything else.
+      if (url.startsWith('file://')) return;
+      e.preventDefault();
+      if (/^https?:\/\//i.test(url)) shell.openExternal(url).catch(() => {});
+    };
+    wc.on('will-navigate', guard);
+    wc.on('will-redirect', guard);
+  }
+
   // Dynamic-Island style: a transparent canvas pinned to the top-center, the same width
   // as the menu bar around the notch. The renderer draws a black island fused to the
   // notch (square top, round bottom) that expands on hover/hotkey. The window stays
@@ -188,6 +215,7 @@ class MainProcess {
         preload: join(__dirname, 'preload-panel.js'),
       },
     });
+    this.hardenWindow(this.notchPanel);
     this.notchPanel.setAlwaysOnTop(true, 'screen-saver');
     if (process.platform === 'darwin') {
       this.notchPanel.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
@@ -342,6 +370,7 @@ class MainProcess {
         preload: join(__dirname, 'preload-notebook.js'),
       },
     });
+    this.hardenWindow(this.notebookWindow);
     // A fresh load means the renderer hasn't mounted its listeners yet — buffer events
     // until it signals 'notebook:ready' (handshake), and re-buffer on any reload.
     this.streamSession?.markNotReady();
@@ -381,6 +410,9 @@ class MainProcess {
     let used = 0;
     for (const p of paths.slice(0, 10)) {
       try {
+        // Only read paths the user actually chose via the native picker — never an arbitrary
+        // absolute path the renderer made up (which could exfiltrate ~/.ssh/id_rsa et al.).
+        if (!this.allowedAttachmentPaths.has(p)) continue;
         if (!existsSync(p) || statSync(p).size > PER_FILE) continue;
         const content = readFileSync(p, 'utf8');
         if (used + content.length > TOTAL) break;
@@ -419,6 +451,10 @@ class MainProcess {
       const session = this.streamSession;
 
       const attachments = this.readAttachments(req.attachments);
+      // Only honor an image path our own capture produced — never an arbitrary path the
+      // renderer supplies (which would let it have any file base64'd to a cloud LLM, or
+      // deleted in the cleanup below).
+      const imagePath = req.imagePath && this.allowedImagePaths.has(req.imagePath) ? req.imagePath : undefined;
 
       // The answer streams into the notebook window (created hidden if not open). The panel
       // only shows progress + an Open button. beginRun aborts any prior in-flight query and
@@ -440,7 +476,7 @@ class MainProcess {
             req.kind === 'text'
               ? { text: req.selection ?? '', sourceApp: req.sourceApp, via: 'clipboard' }
               : undefined,
-          imagePath: req.imagePath,
+          imagePath,
           attachments,
           signal,
           onToken: (delta) => session.emit(runId, 'notebook:token', delta),
@@ -462,9 +498,10 @@ class MainProcess {
         return { ok: false, error: message };
       } finally {
         session.endRun(runId);
-        // Clean up the temp screenshot once the model has consumed it.
-        if (req.kind === 'image' && req.imagePath && existsSync(req.imagePath)) {
-          try { rmSync(req.imagePath); } catch { /* ignore */ }
+        // Clean up the temp screenshot once the model has consumed it (only our own path).
+        if (req.kind === 'image' && imagePath && existsSync(imagePath)) {
+          try { rmSync(imagePath); } catch { /* ignore */ }
+          this.allowedImagePaths.delete(imagePath);
         }
       }
     });
@@ -477,6 +514,9 @@ class MainProcess {
         ? await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'] })
         : await dialog.showOpenDialog({ properties: ['openFile', 'multiSelections'] });
       if (result.canceled) return [];
+      // Remember exactly which paths the user approved via the picker; only these may be
+      // read back at run time (see readAttachments).
+      result.filePaths.forEach((p) => this.allowedAttachmentPaths.add(p));
       return result.filePaths.map((p) => ({ path: p, name: basename(p) }));
     });
 
@@ -578,11 +618,14 @@ class MainProcess {
       }
     });
 
-    // Notebook (notes app) operations.
+    // Notebook (notes app) operations. Every handler that takes an `id` validates it at the
+    // boundary: the id becomes a filename downstream, so a renderer-supplied `../` or
+    // absolute path must be rejected before it can read/delete files outside the notebook dir.
     ipcMain.handle('notebook:list', () => this.notebookStore?.list() ?? []);
     ipcMain.handle('notebook:search', (_e, query: string) => this.notebookStore?.search(query) ?? []);
-    ipcMain.handle('notebook:get', (_e, id: string) => this.notebookStore?.getBody(id) ?? null);
+    ipcMain.handle('notebook:get', (_e, id: string) => (isValidEntryId(id) ? this.notebookStore?.getBody(id) ?? null : null));
     ipcMain.handle('notebook:image', (_e, id: string) => {
+      if (!isValidEntryId(id)) return null;
       const p = this.notebookStore?.getImagePath(id);
       if (!p || !existsSync(p)) return null;
       try {
@@ -593,18 +636,20 @@ class MainProcess {
         return null;
       }
     });
-    ipcMain.handle('notebook:rename', (_e, id: string, title: string) => { this.notebookStore?.rename(id, title); });
-    ipcMain.handle('notebook:pin', (_e, id: string, pinned: boolean) => { this.notebookStore?.setPinned(id, pinned); });
-    ipcMain.handle('notebook:update-body', (_e, id: string, body: string) => { this.notebookStore?.updateBody(id, body); });
-    ipcMain.handle('notebook:hide', (_e, id: string) => { this.notebookStore?.hide(id); });
-    ipcMain.handle('notebook:restore', (_e, id: string) => { this.notebookStore?.restore(id); });
-    ipcMain.handle('notebook:delete', (_e, id: string) => { this.notebookStore?.delete(id); });
+    ipcMain.handle('notebook:rename', (_e, id: string, title: string) => { if (isValidEntryId(id)) this.notebookStore?.rename(id, title); });
+    ipcMain.handle('notebook:pin', (_e, id: string, pinned: boolean) => { if (isValidEntryId(id)) this.notebookStore?.setPinned(id, pinned); });
+    ipcMain.handle('notebook:update-body', (_e, id: string, body: string) => { if (isValidEntryId(id)) this.notebookStore?.updateBody(id, body); });
+    ipcMain.handle('notebook:hide', (_e, id: string) => { if (isValidEntryId(id)) this.notebookStore?.hide(id); });
+    ipcMain.handle('notebook:restore', (_e, id: string) => { if (isValidEntryId(id)) this.notebookStore?.restore(id); });
+    ipcMain.handle('notebook:delete', (_e, id: string) => { if (isValidEntryId(id)) this.notebookStore?.delete(id); });
 
     ipcMain.handle('panel:screenshot', async () => {
       if (this.screenshotInFlight) return null; // a capture is already up — don't overlap crosshairs
       this.screenshotInFlight = true;
       try {
         const { path } = await captureRegion();
+        // Mark our own capture as a legitimate image path the renderer may pass to run-query.
+        if (path) this.allowedImagePaths.add(path);
         return path;
       } catch (e) {
         console.error('Screenshot failed:', e);

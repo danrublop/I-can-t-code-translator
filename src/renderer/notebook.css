@@ -183,3 +183,9 @@ body { font-family: var(--sans); color: var(--ink); background: var(--canvas); -
 .slash-item { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; border: none; background: none; padding: 7px 10px; border-radius: 6px; cursor: pointer; font: inherit; color: #1A1A1A; }
 .slash-item.is-active { background: #1A1A1A; color: #fff; }
 .slash-item__badge { margin-left: auto; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.6; }
+
+/* ---- editor wiring (NotebookEditor swap) ---- */
+.editor-wrap .nb-editor { flex: 1; min-height: 0; }
+.streaming-pane { white-space: pre-wrap; padding: 18px var(--pad-x, 32px) 110px; line-height: 1.68; color: var(--ink, #1a1a1a); overflow-y: auto; }
+.toolbar-hint { font-size: 12px; color: #8a8a8a; }
+.toolbar-hint code { font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; background: rgba(0,0,0,0.05); padding: 0 4px; border-radius: 3px; }

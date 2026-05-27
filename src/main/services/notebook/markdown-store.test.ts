@@ -3,7 +3,7 @@
 // (The SQLite index is rebuilt from these files on launch, so a parse bug = data loss.)
 
 import { describe, it, expect } from 'vitest';
-import { serializeEntry, parseEntry } from './markdown-store';
+import { serializeEntry, parseEntry, isValidEntryId } from './markdown-store';
 import type { NotebookEntry } from './types';
 
 const base: NotebookEntry = {
@@ -60,6 +60,31 @@ describe('serializeEntry ↔ parseEntry round-trip', () => {
 
   it('handles an empty body', () => {
     expect(roundTrip({ ...base, body: '' })?.body).toBe('');
+  });
+});
+
+describe('isValidEntryId (path-traversal guard)', () => {
+  it('accepts server-generated ids (UUIDs and our safe alphabet)', () => {
+    expect(isValidEntryId('550e8400-e29b-41d4-a716-446655440000')).toBe(true);
+    expect(isValidEntryId('01J-test-id')).toBe(true);
+    expect(isValidEntryId('abc_123')).toBe(true);
+  });
+
+  it('rejects traversal, separators, and absolute paths that would escape the notebook dir', () => {
+    expect(isValidEntryId('../../etc/passwd')).toBe(false);
+    expect(isValidEntryId('..')).toBe(false);
+    expect(isValidEntryId('/Users/me/Documents/secret')).toBe(false);
+    expect(isValidEntryId('a/b')).toBe(false);
+    expect(isValidEntryId('id.with.dots')).toBe(false); // '.' not allowed -> no `..` ever
+    expect(isValidEntryId('id with spaces')).toBe(false);
+    expect(isValidEntryId('')).toBe(false);
+    expect(isValidEntryId('x'.repeat(129))).toBe(false); // length-capped
+  });
+
+  it('rejects non-strings', () => {
+    expect(isValidEntryId(undefined)).toBe(false);
+    expect(isValidEntryId(null)).toBe(false);
+    expect(isValidEntryId(42)).toBe(false);
   });
 });
 

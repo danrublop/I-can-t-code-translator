@@ -35,10 +35,23 @@ export class AnthropicLlmClient implements LlmClient {
           signal: opts.signal,
         },
       );
+      const stream = res.data;
       return await new Promise<string>((resolve, reject) => {
         let full = '';
         let buffer = '';
-        res.data.on('data', (chunk: Buffer) => {
+        let settled = false;
+        // Destroy the socket + detach listeners on the terminal event so trailing SSE events
+        // after message_stop can't keep calling onToken once we've resolved.
+        const finish = (fn: () => void) => {
+          if (settled) return;
+          settled = true;
+          stream.removeListener('data', onData);
+          stream.removeListener('end', onEnd);
+          stream.removeListener('error', onError);
+          stream.destroy();
+          fn();
+        };
+        const onData = (chunk: Buffer) => {
           buffer += chunk.toString();
           const lines = buffer.split('\n');
           buffer = lines.pop() ?? '';
@@ -50,15 +63,26 @@ export class AnthropicLlmClient implements LlmClient {
               if (evt.type === 'content_block_delta' && typeof evt.delta?.text === 'string') {
                 full += evt.delta.text;
                 opts.onToken?.(evt.delta.text); // delta chunk, not cumulative
+              } else if (evt.type === 'error') {
+                // Anthropic streams overloaded/rate-limit errors in-band over a 200 response.
+                finish(() => reject(new Error(`Anthropic stream error: ${evt.error?.message || 'unknown error'}`)));
+                return;
               } else if (evt.type === 'message_stop') {
-                resolve(full);
+                finish(() => resolve(full));
                 return;
               }
             } catch { /* skip */ }
           }
-        });
-        res.data.on('end', () => resolve(full));
-        res.data.on('error', (e: Error) => reject(opts.signal?.aborted ? new Error('cancelled') : new Error(`Anthropic stream error: ${e.message}`)));
+        };
+        // Connection closed without message_stop: the stream was cut short, so don't pass a
+        // truncated answer back as a successful completion.
+        const onEnd = () => finish(() => (full
+          ? reject(new Error('Anthropic stream ended before completion (truncated response).'))
+          : reject(new Error('No response received from Anthropic'))));
+        const onError = (e: Error) => finish(() => reject(opts.signal?.aborted ? new Error('cancelled') : new Error(`Anthropic stream error: ${e.message}`)));
+        stream.on('data', onData);
+        stream.on('end', onEnd);
+        stream.on('error', onError);
       });
     } catch (error) {
       if (axios.isCancel(error)) throw new Error('cancelled');

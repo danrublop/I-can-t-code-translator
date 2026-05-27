@@ -37,6 +37,16 @@ function unesc(raw: string): string {
   return v;
 }
 
+/**
+ * Entry ids are server-generated (randomUUID). Reject anything else before it reaches the
+ * filesystem so a renderer-supplied id (`notebook:delete`, `notebook:get`, …) can never
+ * escape the notebook dir via `../` traversal or absolute paths. UUIDs only use
+ * `[0-9a-f-]`, but we allow a slightly wider safe alphabet for forward-compatibility.
+ */
+export function isValidEntryId(id: unknown): id is string {
+  return typeof id === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(id);
+}
+
 export function serializeEntry(entry: NotebookEntry): string {
   const tags = entry.tags.map(esc).join(', ');
   const fm = [
@@ -101,6 +111,8 @@ export class MarkdownStore {
   }
 
   private pathFor(id: string): string {
+    // Hard stop on traversal: the id becomes a filename, so it must be a safe token.
+    if (!isValidEntryId(id)) throw new Error(`Invalid notebook entry id: ${JSON.stringify(id)}`);
     return join(this.dir, `${id}.md`);
   }
 
@@ -120,6 +132,7 @@ export class MarkdownStore {
   /** Copy a capture image into the notebook's images/ dir, keyed by entry id. Returns the
       stored absolute path (or the source unchanged if it's already inside images/). */
   storeImage(id: string, srcPath: string): string {
+    if (!isValidEntryId(id)) throw new Error(`Invalid notebook entry id: ${JSON.stringify(id)}`);
     const imagesDir = join(this.dir, 'images');
     if (srcPath.startsWith(imagesDir)) return srcPath; // already stored
     if (!existsSync(imagesDir)) mkdirSync(imagesDir, { recursive: true });

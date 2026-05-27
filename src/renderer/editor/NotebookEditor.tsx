@@ -17,7 +17,7 @@ import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from '@tiptap/markdown';
 import { AiBlock } from './ai-block';
 import { AiBlockView } from './ai-block-view';
-import { setAiBlockText, setAiBlockAttrs } from './doc-helpers';
+import { setAiBlockText, setAiBlockAttrs, setAiBlockMarkdown } from './doc-helpers';
 import { mergeCommands, filterCommands, type SlashCommand } from '../../main/services/presets/slash-commands';
 
 // The inline-generation slice of window.notebookAPI (preload-notebook.ts).
@@ -153,7 +153,9 @@ export function NotebookEditor({ markdown, model, userCommands = [], onChange }:
       setAiBlockText(editor, blockId, cur);
     });
     const offDone = api.onGenDone(({ blockId, answer, model: m }) => {
-      setAiBlockText(editor, blockId, answer || (buffers.current.get(blockId) ?? ''));
+      // Parse the final answer Markdown into real nodes (lists/headings/code render
+      // properly and round-trip to Markdown) instead of leaving it as literal text.
+      setAiBlockMarkdown(editor, blockId, answer || (buffers.current.get(blockId) ?? ''));
       setAiBlockAttrs(editor, blockId, { state: 'done', model: m });
       buffers.current.delete(blockId);
       if (onChange) onChange(editor.getMarkdown());

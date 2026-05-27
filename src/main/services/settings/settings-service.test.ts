@@ -71,10 +71,17 @@ describe('SettingsService', () => {
     expect(s.getRedacted().openaiKeySet).toBe(false);
   });
 
-  it('falls back to plaintext when encryption is unavailable', () => {
+  it('never writes a key in plaintext when encryption is unavailable (memory-only for the session)', () => {
     encryptionAvailable = false;
-    new SettingsService(file).setKey('openai', 'sk-plain-fallback');
-    expect(JSON.parse(readFileSync(file, 'utf8')).openaiKey).toBe('sk-plain-fallback');
+    const s = new SettingsService(file);
+    s.setKey('openai', 'sk-plain-fallback');
+    // Usable in memory this session…
+    expect(s.get().openaiKey).toBe('sk-plain-fallback');
+    // …but the key is omitted from disk — never persisted in cleartext.
+    const onDisk = JSON.parse(readFileSync(file, 'utf8'));
+    expect(onDisk.openaiKey).toBeUndefined();
+    // A fresh instance therefore has no key (the user re-enters it).
+    expect(new SettingsService(file).get().openaiKey).toBeUndefined();
   });
 
   // Documents a real failure mode (review finding): if a stored ciphertext can't be

@@ -31,10 +31,23 @@ export class OpenAiLlmClient implements LlmClient {
         { model: opts.model, messages: [{ role: 'user', content: buildContent(opts.prompt, opts.imagePath) }], stream: true },
         { headers: { Authorization: `Bearer ${key}` }, responseType: 'stream', timeout: 120000, signal: opts.signal },
       );
+      const stream = res.data;
       return await new Promise<string>((resolve, reject) => {
         let full = '';
         let buffer = '';
-        res.data.on('data', (chunk: Buffer) => {
+        let settled = false;
+        // Destroy the socket + detach listeners on the terminal event so a trailing SSE chunk
+        // after [DONE] can't keep calling onToken once we've resolved.
+        const finish = (fn: () => void) => {
+          if (settled) return;
+          settled = true;
+          stream.removeListener('data', onData);
+          stream.removeListener('end', onEnd);
+          stream.removeListener('error', onError);
+          stream.destroy();
+          fn();
+        };
+        const onData = (chunk: Buffer) => {
           buffer += chunk.toString();
           const lines = buffer.split('\n');
           buffer = lines.pop() ?? '';
@@ -42,15 +55,22 @@ export class OpenAiLlmClient implements LlmClient {
             const t = line.trim();
             if (!t.startsWith('data:')) continue;
             const payload = t.slice(5).trim();
-            if (payload === '[DONE]') { resolve(full); return; }
+            if (payload === '[DONE]') { finish(() => resolve(full)); return; }
             try {
               const delta = JSON.parse(payload)?.choices?.[0]?.delta?.content;
               if (typeof delta === 'string') { full += delta; opts.onToken?.(delta); } // delta, not cumulative
             } catch { /* skip */ }
           }
-        });
-        res.data.on('end', () => resolve(full));
-        res.data.on('error', (e: Error) => reject(opts.signal?.aborted ? new Error('cancelled') : new Error(`OpenAI stream error: ${e.message}`)));
+        };
+        // Connection closed without the [DONE] sentinel: the stream was cut short, so don't
+        // pass a truncated answer back as a successful completion.
+        const onEnd = () => finish(() => (full
+          ? reject(new Error('OpenAI stream ended before completion (truncated response).'))
+          : reject(new Error('No response received from OpenAI'))));
+        const onError = (e: Error) => finish(() => reject(opts.signal?.aborted ? new Error('cancelled') : new Error(`OpenAI stream error: ${e.message}`)));
+        stream.on('data', onData);
+        stream.on('end', onEnd);
+        stream.on('error', onError);
       });
     } catch (error) {
       if (axios.isCancel(error)) throw new Error('cancelled');

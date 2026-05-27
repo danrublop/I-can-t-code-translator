@@ -61,8 +61,15 @@ build-resources/ocr.swift       Vision-framework OCR helper, compiled by `npm ru
 - Markdown files in `userData/notebook/` are the source of truth; the SQLite index is rebuilt
   from disk on launch (`reconcile.ts`). Never treat the DB as authoritative over the files.
 - Renderer security: `contextIsolation: true`, `nodeIntegration: false`. All main↔renderer
-  traffic goes through the preload bridges — don't widen them without reason.
-- Model output rendered into the notebook is sanitized with DOMPurify before display.
+  traffic goes through the preload bridges — don't widen them without reason. Both windows are
+  navigation-locked in `main.ts` (`hardenWindow`): no off-app navigation, and links/`window.open`
+  are routed to the system browser via `shell.openExternal`.
+- Model/clipboard-sourced output is untrusted. It reaches the screen only through XSS-safe
+  paths: the streaming pane writes via `textContent`/`createTextNode`, and the notebook editor
+  parses Markdown into the **ProseMirror schema** (`editor/extensions.ts`), which drops any tag
+  or attribute without a registered node — so raw script/event-handler HTML can't become
+  executable nodes. The Link mark runs with `openOnClick: false`. Never inject this content as
+  raw HTML; if a raw-HTML path is ever unavoidable, run it through DOMPurify first.
 - Capture/screenshot/tray shell out via `execFile` with fixed args (no shell) — keep it that way.
 
 ## Open work

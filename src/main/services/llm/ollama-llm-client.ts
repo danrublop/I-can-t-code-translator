@@ -89,10 +89,23 @@ export class OllamaLlmClient implements LlmClient {
         signal: opts.signal,
       });
 
+      const stream = response.data;
       return await new Promise<string>((resolve, reject) => {
         let full = '';
         let buffer = '';
-        response.data.on('data', (chunk: Buffer) => {
+        let settled = false;
+        // Stop the socket and detach listeners on the first terminal event, so post-`done`
+        // chunks can't keep firing onToken (ghost tokens) after we've resolved.
+        const finish = (fn: () => void) => {
+          if (settled) return;
+          settled = true;
+          stream.removeListener('data', onData);
+          stream.removeListener('end', onEnd);
+          stream.removeListener('error', onError);
+          stream.destroy();
+          fn();
+        };
+        const onData = (chunk: Buffer) => {
           buffer += chunk.toString();
           const lines = buffer.split('\n');
           buffer = lines.pop() ?? '';
@@ -104,17 +117,21 @@ export class OllamaLlmClient implements LlmClient {
                 full += data.response;
                 opts.onToken?.(data.response); // delta chunk, not cumulative
               }
-              if (data.done) resolve(full);
+              if (data.done) { finish(() => resolve(full)); return; }
             } catch {
               // skip malformed line
             }
           }
-        });
-        response.data.on('end', () => {
-          if (full) resolve(full);
-          else reject(new Error('No response received from Ollama'));
-        });
-        response.data.on('error', (err: Error) => reject(opts.signal?.aborted ? new Error('cancelled') : new Error(`Ollama stream error: ${err.message}`)));
+        };
+        // Stream ended without a `done:true` marker: the generation was cut short. Treat it
+        // as a failure rather than silently persisting a partial answer as if complete.
+        const onEnd = () => finish(() => reject(new Error(
+          full ? 'Ollama stream ended before completion (truncated response).' : 'No response received from Ollama',
+        )));
+        const onError = (err: Error) => finish(() => reject(opts.signal?.aborted ? new Error('cancelled') : new Error(`Ollama stream error: ${err.message}`)));
+        stream.on('data', onData);
+        stream.on('end', onEnd);
+        stream.on('error', onError);
       });
     } catch (error) {
       if (axios.isCancel(error)) throw new Error('cancelled');
